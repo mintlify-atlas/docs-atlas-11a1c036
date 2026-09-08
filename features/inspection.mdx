@@ -1,0 +1,98 @@
+---
+title: "Product Label Inspection Workflow in LexMetra"
+sidebarTitle: "Inspection"
+description: "Walk through the complete LexMetra inspection flow: scanning a product label, reviewing OCR-extracted declarations, and saving results to the compliance register."
+---
+
+LexMetra's inspection workflow gives a field officer everything needed to evaluate a pre-packaged commodity label in seconds — from capturing an image to receiving a scored compliance verdict and optionally promoting the record to the statutory register. The entire flow runs client-side in demo mode, meaning inspections start immediately without any backend round-trip.
+
+## Starting an Inspection
+
+An inspection can be initiated through two entry points, both accessible from the **Scan** screen.
+
+**Camera capture** uses the browser's `navigator.mediaDevices.getUserMedia` API with `facingMode: 'environment'` to prefer the device's rear camera. Once the stream is live, a canvas snapshot is taken at the moment of capture and encoded as a JPEG data-URL at quality 0.82.
+
+**File upload** uses the `FileReader` API. When a user picks an image from their gallery, a `FileReader.readAsDataURL()` call converts the file to a base-64 data-URL, which is then passed through the same inspection pipeline as a live capture.
+
+The scan screen features a dedicated **viewfinder UI**: a `4:5` aspect-ratio container with animated corner-bracket markers at each corner and a horizontal scanning-line animation (`scan-line` class) that sweeps the frame while the live stream is active. If the camera cannot be initialised — permission denied or hardware unavailable — a `CameraOff` warning is shown and the user is directed to gallery upload or the demo-case button instead.
+
+<Tip>
+  Tap **Demo case** on the scan screen to trigger an inspection without a real image. This uses a seeded fixture record so you can explore the full result flow immediately.
+</Tip>
+
+## Inspection Views
+
+The app is a single-page application whose entire UI is driven by a `View` state string. The following named views are defined in `inspection.tsx`:
+
+| View | Purpose |
+|---|---|
+| `home` | Dashboard with metrics, register health, and recent inspections |
+| `history` | Full audit list of every scan |
+| `register` | Filtered list showing only `saved === true` records |
+| `profile` | Inspector identity card and system status |
+| `scan` | Camera/file-upload capture screen |
+| `processing` | Animated pipeline progress indicator |
+| `result` | Score card, declarations table, and action buttons |
+| `detail` | Alias for `result` when opened from history |
+| `evidence` | Annotated image with bounding-box overlays |
+| `report` | Printable/downloadable formal report |
+
+Navigation between views uses the `go(nextView)` helper, which also resets the `selected` inspection whenever the user leaves the result cluster (`result`, `detail`, `evidence`, `report`).
+
+## Processing Flow
+
+<Steps>
+  <Step title="Image captured">
+    The user taps the shutter button (camera capture) or selects a file from gallery. The resulting JPEG data-URL, or `undefined` for a demo case, is stored as `pendingImage` and the app transitions to the `processing` view.
+  </Step>
+  <Step title="ProcessingView rendered">
+    `ProcessingView` displays a five-step animated checklist: **Image received → Detecting package label → Extracting declarations → Checking Legal Metrology rules → Preparing compliance report**. Each step activates at 650 ms intervals via `setInterval`, giving the user visual feedback of the pipeline stages.
+  </Step>
+  <Step title="inspectPackage() called">
+    After 3 500 ms `finishProcessing()` is invoked, which calls the async `inspectPackage(pendingImage)` function from `mock-services.ts`. The function waits 250 ms (simulating network latency) then delegates to `getDemoCase(Date.now(), image)` to produce a fully-typed `Inspection` object.
+  </Step>
+  <Step title="Inspection object returned">
+    The returned `Inspection` is appended to the front of the in-memory `inspections` array and set as the `selected` record, making it immediately available to the result views.
+  </Step>
+  <Step title="ResultView displayed">
+    The view state transitions to `result`. `ResultView` renders the decision card with status badge, compliance score ring, a declaration-by-declaration breakdown, any detected issues, and the save/evidence/report action buttons.
+  </Step>
+</Steps>
+
+## Result Classification
+
+Every inspection resolves to one of three statuses, reflected on the score card and throughout the UI:
+
+| Status | Meaning | Visual treatment |
+|---|---|---|
+| `COMPLIANT` | All mandatory declarations were extracted and verified against the rule set | Green badge, `bg-success-soft` decision card |
+| `VIOLATION` | One or more declarations are `MISSING` or flagged for human review | Red badge, `bg-danger-soft` decision card, Issues panel shown |
+| `UNCERTAIN` | OCR could not confidently extract enough fields to reach a verdict | Amber badge, `bg-warning-soft` decision card, human-review banner shown in Evidence view |
+
+The numeric `score` (0–100) represents the percentage of declarations verified. A score of `100` with all eight fields `VERIFIED` yields `COMPLIANT`; any `MISSING` field forces `VIOLATION` regardless of score; widespread low-confidence results produce `UNCERTAIN`.
+
+## Saving an Inspection
+
+Two distinct save actions are available from `ResultView`:
+
+**`saveCurrent()`** — constructs a copy of the selected inspection with `saved: true`, calls `persistInspection(saved)` to write the full record to localStorage, and shows a toast: *"Inspection saved to your local register"*. The record appears in the History list.
+
+**`saveAndRegister()`** — calls `markInspectionSaved(id)` which reads the current localStorage array, sets `saved: true` on the matching record, and writes it back. The inspection is then promoted to the **Compliance Register** view (the `register` view filters for `saved === true`). Toast: *"Added to Compliance Register"*.
+
+Once saved, the **Save inspection** button switches to a disabled **Saved to register** state so the same record cannot be double-submitted.
+
+<Note>
+  Both save methods update the in-memory `inspections` state immediately via a `setInspections` call, so the History and Register views reflect the change without a page reload.
+</Note>
+
+## Demo Mode
+
+<Note>
+  In demo mode `inspectPackage()` never contacts a real backend. It calls `getDemoCase(demoSeed, image)` where `demoSeed` defaults to `Date.now()`. The fixture case is selected by `seed % 3`:
+
+  - `seed % 3 === 0` → **UNCERTAIN** fixture (Demo Food Package, score 42)
+  - `seed % 3 === 2` (even, not divisible by 3) → **VIOLATION** fixture (Demo Shampoo, score 75)
+  - All other values → **COMPLIANT** fixture (Tata Salt, score 100)
+
+  The selected fixture is cloned via `cloneInspection()`, which assigns a fresh randomised ID (`LM-2026-XXXX`), sets `timestamp` to `new Date().toISOString()`, `dateLabel` to `"Just now"`, and optionally attaches the captured image. This means repeated scans cycle through all three compliance outcomes naturally over time.
+</Note>

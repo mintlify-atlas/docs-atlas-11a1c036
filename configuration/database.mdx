@@ -1,0 +1,186 @@
+---
+title: "Database Setup and Schema for LexMetra"
+sidebarTitle: "Database"
+description: "How to set up PostgreSQL, run Prisma migrations, and understand the LexMetra schema for users, sessions, accounts, and verification tokens."
+---
+
+LexMetra stores user accounts, authenticated sessions, OAuth-linked accounts, and email verification tokens in a PostgreSQL database managed through Prisma. The database layer is intentionally narrow — inspection records are persisted in the browser, not the server — which means the schema stays small, migrations are fast, and the database has a minimal operational footprint even as the user base grows.
+
+## Requirements
+
+The database layer requires **PostgreSQL 13 or later**. Any of the following options work out of the box:
+
+- **Local install** — PostgreSQL installed directly on your development machine
+- **Docker** — `docker run --name lexmetra-pg -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres:16`
+- **Hosted services** — [Supabase](https://supabase.com), [Neon](https://neon.tech), [Railway](https://railway.app), or any standard managed PostgreSQL provider
+
+Create a database named `lexmetra` (or any name you prefer) and note the connection string — you will need it for `DATABASE_URL`.
+
+## Prisma Setup
+
+LexMetra uses **Prisma v7.10** with the `@prisma/adapter-pg` driver adapter. The adapter provides a native PostgreSQL connection via the `pg` package, bypassing Prisma's traditional TCP connection pooling in favour of a direct pool managed at the adapter level. Two config files define the setup:
+
+- `prisma.config.ts` — primary Prisma configuration, reads `DATABASE_URL` from the environment
+- `prisma7.config.ts` — Prisma 7-specific configuration that also specifies the migrations path explicitly
+
+```typescript prisma.config.ts
+import { defineConfig } from "prisma/config";
+import "dotenv/config";
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  datasource: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+```
+
+## Schema Overview
+
+The `prisma/schema.prisma` file defines four models. All IDs use `cuid()` for globally unique, URL-safe identifiers.
+
+```prisma prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String?
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          String    @default("inspector")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  providerType          String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+```
+
+| Model | Purpose |
+|---|---|
+| `User` | Core identity record. Holds email, hashed password, display name, avatar image, and a `role` field that defaults to `"inspector"`. |
+| `Session` | Server-side session tokens issued by Better Auth. Linked to a `User` with cascade-delete so sessions are removed when a user is deleted. |
+| `Account` | OAuth / credential provider link records managed by Better Auth. Supports multiple providers per user. |
+| `Verification` | Short-lived tokens for email verification flows. Stores identifier + value pairs with an explicit expiry. |
+
+## Running Migrations
+
+<Steps>
+  <Step title="Set DATABASE_URL">
+    Ensure `frontend/.env.local` contains a valid `DATABASE_URL` pointing to your PostgreSQL instance:
+
+    ```bash
+    DATABASE_URL=postgresql://postgres:password@localhost:5432/lexmetra
+    ```
+  </Step>
+  <Step title="Navigate to the frontend directory">
+    All Prisma commands must be run from the `frontend/` directory where `prisma.config.ts` and `package.json` reside:
+
+    ```bash
+    cd frontend
+    ```
+  </Step>
+  <Step title="Deploy migrations">
+    Run `prisma migrate deploy` to apply all pending migrations in sequence. This command is safe to run in both development and production — it only applies migrations that have not yet been applied:
+
+    ```bash
+    npx prisma migrate deploy
+    ```
+
+    On a fresh database, all four migrations will run in order, producing the full schema.
+  </Step>
+  <Step title="Verify with Prisma Studio">
+    Open the Prisma Studio GUI to confirm the tables were created and inspect their structure:
+
+    ```bash
+    npx prisma studio
+    ```
+
+    Prisma Studio opens at `http://localhost:5555` and lets you browse and edit rows in `User`, `Session`, `Account`, and `Verification`.
+  </Step>
+</Steps>
+
+## Available Migrations
+
+The `prisma/migrations/` directory contains four migration files applied in timestamp order:
+
+| Migration | Description |
+|---|---|
+| `20260908115642_init` | Initial schema — creates the base `User`, `Session`, and `Account` tables. |
+| `20260908120049_add_auth_fields` | Adds auth-specific fields required by Better Auth (e.g. `emailVerified`, `ipAddress`, `userAgent`). |
+| `20260908120355_init` | Re-initialisation pass — consolidates schema state after auth field additions. |
+| `20260908120525_fix_account_provider_type` | Fixes the `Account.providerType` column definition to align with Better Auth's expected type. |
+
+<Note>
+  Inspection records — the core work product of LexMetra's compliance workflow — are **not** stored in PostgreSQL. They are persisted entirely in browser `localStorage` on the client. The database is scoped exclusively to authentication: user identities, active sessions, provider account links, and verification tokens. This design means the database schema will remain stable as inspection features evolve.
+</Note>
+
+## Prisma Client Initialisation
+
+The Prisma client is instantiated once per Node.js process using a global singleton pattern to prevent connection pool exhaustion during Next.js hot-reloads in development. The same pattern is used in both `lib/auth.ts` and `lib/db.ts`:
+
+```typescript lib/db.ts
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL!,
+});
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma =
+  globalForPrisma.prisma ?? new PrismaClient({ adapter });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
+
+In production (`NODE_ENV === "production"`), the global reference is never set, so each serverless function invocation gets a fresh client that is garbage-collected normally. In development, the reference is stored on `globalThis` so the hot-reload cycle reuses the same connection pool instead of opening a new one on every file save.

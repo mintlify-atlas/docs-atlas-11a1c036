@@ -1,0 +1,144 @@
+---
+title: "Inspection History and Compliance Register in LexMetra"
+sidebarTitle: "History & Register"
+description: "How LexMetra stores, searches, and filters inspection records in the audit history and promotes verified products to the statutory compliance register."
+---
+
+LexMetra maintains two distinct record lists that serve different purposes in a field officer's workflow. The **Inspection history** is a complete, append-only audit trail of every package scan performed on the device. The **Compliance register** is a curated subset of that history — only products that an officer has explicitly reviewed and saved appear there. Both lists are rendered by the same `ListView` component and support the same search and filter controls.
+
+## Inspection History
+
+Every call to `inspectPackage()` produces a new `Inspection` record that is immediately prepended to the in-memory `inspections` array and written to localStorage. No inspector action is required — the record is created automatically when the processing pipeline completes.
+
+An `Inspection` record carries the following fields:
+
+| Field | Type | Example |
+|---|---|---|
+| `id` | String (formatted) | `LM-2026-0042` |
+| `product` | String | `Tata Salt` |
+| `manufacturer` | String | `Tata Consumer Products Ltd.` |
+| `quantity` | String | `1 kg` |
+| `status` | `InspectionStatus` | `COMPLIANT` |
+| `summary` | String | `8/8 declarations verified` |
+| `timestamp` | ISO 8601 string | `2026-09-05T10:32:00+05:30` |
+| `dateLabel` | Human-readable string | `Today, 10:32 AM` |
+| `declarations` | `Declaration[]` | Array of 8 declaration objects |
+| `evidence` | `EvidenceRegion[]` | Array of bounding-box regions |
+| `image` | `string` (optional) | Base-64 JPEG data-URL |
+| `saved` | `boolean` | `true` / `false` |
+| `score` | `number` (0–100) | `100` |
+
+The history list shows all records unconditionally — both saved and unsaved, all statuses.
+
+## Compliance Register
+
+The register view applies a single additional filter on top of the shared search/status filters:
+
+```typescript
+// ListView applies this when kind === "register"
+(kind === "history" || item.saved)
+```
+
+This means only records where `saved === true` are visible in the register. An inspector promotes a record by tapping **Save inspection** in the `ResultView`, which triggers `saveAndRegister()`. This calls `markInspectionSaved(id)` from `mock-services.ts`:
+
+```typescript
+export function markInspectionSaved(id: string): Inspection[] {
+  const current = loadInspections();
+  const next = current.map((item) =>
+    item.id === id ? { ...item, saved: true } : item
+  );
+  saveInspections(next);
+  return next;
+}
+```
+
+Once `saved` is set to `true`, the record appears in the register and the Save button is disabled to prevent duplicate submissions.
+
+## Search and Filter
+
+Both the History and Register views share the `FilterBar` component, which provides two controls that combine with an `AND` condition:
+
+**Text search** matches against three fields simultaneously:
+
+```typescript
+`${item.product} ${item.id} ${item.manufacturer}`
+  .toLowerCase()
+  .includes(search.toLowerCase())
+```
+
+This means an officer can search by product name (e.g. `Tata`), inspection ID (e.g. `0042`), or manufacturer name (e.g. `Parle`).
+
+**Status filter chips** let the officer narrow the list to a single compliance outcome:
+
+| Chip | Filter applied |
+|---|---|
+| ALL | No status filter (default) |
+| COMPLIANT | `item.status === "COMPLIANT"` |
+| VIOLATION | `item.status === "VIOLATION"` |
+| UNCERTAIN | `item.status === "UNCERTAIN"` |
+
+The active chip is highlighted with the primary brand colour; inactive chips use the muted background style. A record count badge updates in real time as the filters change.
+
+## Persistence
+
+Inspection records are persisted to the browser's localStorage under a fixed key. The key is defined in `mock-services.ts`:
+
+```typescript
+const INSPECTIONS_KEY = 'the-inspectors-inspections';
+// Reads as Inspection[] from JSON
+const stored = window.localStorage.getItem(INSPECTIONS_KEY);
+```
+
+On app mount, the `useEffect` in `InspectionApp` reads this key and merges the stored records with the seed fixtures:
+
+```typescript
+const parsed = JSON.parse(stored) as Inspection[];
+if (Array.isArray(parsed) && parsed.length)
+  setInspections([
+    ...parsed,
+    // Append any seed records not already in stored data
+    ...seedInspections.filter(
+      (seed) => !parsed.some((item) => item.id === seed.id)
+    ),
+  ]);
+```
+
+If localStorage is empty or the data cannot be parsed, the app falls back to the four seed fixtures exclusively.
+
+<Warning>
+  localStorage is scoped to the browser origin and device. Inspection records are not synced across devices or users in the current release. Production deployments should replace `persistInspection` and `markInspectionSaved` with server-side API calls backed by the PostgreSQL database.
+</Warning>
+
+## Seed Data
+
+<Note>
+  On first load (or when localStorage is empty), LexMetra pre-populates the history with four fixture inspection records from `seedInspections` in `demo-data.ts`. These give new users a realistic starting point and demonstrate all three compliance statuses.
+
+  | ID | Product | Status | Saved |
+  |---|---|---|---|
+  | `LM-2026-0042` | Tata Salt | `COMPLIANT` (score 100) | ✅ Yes |
+  | `LM-2026-0039` | Demo Shampoo | `VIOLATION` (score 75) | ✅ Yes |
+  | `LM-2026-0036` | Demo Food Package | `UNCERTAIN` (score 42) | ❌ No |
+  | `LM-2026-0031` | Parle-G Biscuits | `COMPLIANT` (score 100) | ✅ Yes |
+
+  The seed merge logic ensures that if a user has performed real scans, those are shown first (prepended) and seed records fill in only the IDs that do not already exist in the stored array — no duplicates are introduced.
+</Note>
+
+## Inspection Detail View
+
+Clicking any row in History or Register calls `handleOpen(inspection)`, which sets the selected record and transitions to the `detail` view (which renders `ResultView` with the selected inspection). The detail view provides:
+
+<CardGroup cols={2}>
+  <Card title="Product thumbnail & status badge" icon="package">
+    A colour-coded product thumbnail (initials-based or image, if available) alongside the `COMPLIANT`, `VIOLATION`, or `UNCERTAIN` badge, score ring, and inspection metadata strip (product name, ID, declarations count, timestamp).
+  </Card>
+  <Card title="Declarations table" icon="list-check">
+    All eight declarations listed with field name, extracted value, and a colour-coded status indicator — green check for `VERIFIED`, red ✕ for `MISSING`, amber ℹ for `REVIEW` — plus the confidence percentage on wider screens.
+  </Card>
+  <Card title="Evidence regions viewer" icon="scan">
+    Tapping **View evidence** transitions to the `evidence` view, which overlays the bounding-box markers on the original captured image. Clicking a marker highlights it and shows the detected text and confidence in the detail panel.
+  </Card>
+  <Card title="Action buttons" icon="floppy-disk">
+    **Save inspection** promotes the record to the compliance register (`saved: true`). **View evidence** opens the annotated image. **Generate report** opens the `ReportView` with a downloadable formal compliance report.
+  </Card>
+</CardGroup>

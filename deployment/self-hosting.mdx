@@ -1,0 +1,155 @@
+---
+title: "Self-Hosting LexMetra: Full Stack Deployment Guide"
+sidebarTitle: "Self-Hosting"
+description: "Complete guide to self-hosting LexMetra with both the Next.js frontend and FastAPI backend on a single VPS, including PostgreSQL and reverse proxy setup."
+---
+
+Self-hosting LexMetra gives you full control over your data and infrastructure. This guide walks through deploying the Next.js 16 frontend and the FastAPI backend on a single VPS, with PostgreSQL as the database and nginx as the reverse proxy routing traffic between the two services. By the end, both services will be running as supervised PM2 processes behind a unified domain.
+
+## Infrastructure Overview
+
+You will need the following in place before starting:
+
+| Component | Minimum Requirement |
+|---|---|
+| VPS | 2 vCPU, 2 GB RAM (4 GB recommended for production load) |
+| PostgreSQL | Version 13 or later |
+| Node.js | Version 18 or later (required by Prisma 7 + `@prisma/adapter-pg`) |
+| Python | Version 3.9 or later |
+| Reverse proxy | nginx (recommended) or Caddy |
+| Domain name | Required for TLS / SSL via Let's Encrypt |
+
+## Port Layout
+
+Each service binds to a dedicated local port. nginx listens on 80 (and 443 after TLS is configured) and proxies requests to the appropriate service.
+
+| Service | Default Port | Description |
+|---|---|---|
+| Next.js frontend | `3000` | Main web application |
+| FastAPI backend | `8000` | OCR and inspection API |
+| PostgreSQL | `5432` | Database |
+
+## Setting Up PostgreSQL
+
+Install PostgreSQL, create a dedicated database and user, then grant the user full privileges on that database.
+
+```bash
+sudo apt install postgresql postgresql-contrib
+
+# Create the database
+sudo -u postgres createdb lexmetra
+
+# Create a user (you will be prompted for a password)
+sudo -u postgres createuser lexmetra_user --pwprompt
+
+# Grant all privileges
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE lexmetra TO lexmetra_user;"
+```
+
+Once the database is ready, set your `DATABASE_URL` environment variable:
+
+```bash
+DATABASE_URL="postgresql://lexmetra_user:yourpassword@localhost:5432/lexmetra"
+```
+
+Apply Prisma migrations before starting the frontend for the first time:
+
+```bash
+cd frontend
+npx prisma migrate deploy
+```
+
+## nginx Reverse Proxy Configuration
+
+The nginx configuration below routes FastAPI API paths (`/api/inspect` and `/api/health`) to port `8000` and all other traffic to the Next.js server on port `3000`. WebSocket upgrade headers are included for Next.js hot-module replacement and any future real-time features.
+
+```nginx /etc/nginx/sites-available/lexmetra
+server {
+    listen 80;
+    server_name lexmetra.yourdomain.com;
+
+    # FastAPI backend routes
+    location ~ ^/api/(inspect|health) {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Next.js frontend
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+    }
+}
+```
+
+Enable the configuration and reload nginx:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/lexmetra /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+## Running Both Services with PM2
+
+PM2 keeps both processes running in the background and restarts them automatically on failure or reboot.
+
+```bash
+# ── Frontend ──────────────────────────────────────────────
+cd frontend && npm run build
+pm2 start npm --name lexmetra-frontend -- start
+
+# ── Backend ───────────────────────────────────────────────
+cd ../backend
+pm2 start "uvicorn main:app --host 127.0.0.1 --port 8000" \
+  --name lexmetra-backend \
+  --interpreter python3
+
+# Persist the process list and register PM2 with systemd
+pm2 save
+pm2 startup
+```
+
+<Note>
+  The backend binds to `127.0.0.1` (loopback only) in the PM2 command above. Traffic reaches it exclusively through nginx, which prevents the FastAPI service from being directly reachable on your public IP.
+</Note>
+
+You can inspect running processes and tail logs with:
+
+```bash
+pm2 list
+pm2 logs lexmetra-frontend
+pm2 logs lexmetra-backend
+```
+
+## Health Checks
+
+After both services are up, verify they are responding correctly:
+
+```bash
+# Next.js frontend + database connectivity check
+curl http://localhost:3000/api/health/db
+
+# FastAPI backend health check
+curl http://localhost:8000/api/health
+```
+
+A healthy FastAPI response looks like:
+
+```json
+{"status": "healthy"}
+```
+
+You can also verify traffic flows correctly through nginx by hitting the public domain:
+
+```bash
+curl https://lexmetra.yourdomain.com/api/health
+```
+
+<Tip>
+  Secure your deployment with a free TLS certificate from Let's Encrypt. Run `sudo certbot --nginx -d lexmetra.yourdomain.com` and Certbot will automatically update your nginx configuration, obtain the certificate, and set up auto-renewal. Never serve production user data over plain HTTP.
+</Tip>

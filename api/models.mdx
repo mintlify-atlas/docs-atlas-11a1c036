@@ -1,0 +1,214 @@
+---
+title: "LexMetra Data Models: Inspection, Declaration, User"
+sidebarTitle: "Data Models"
+description: "TypeScript and Prisma type definitions for all LexMetra data models: Inspection, Declaration, EvidenceRegion, User, Session, and InspectionStatus enums."
+---
+
+LexMetra's data layer is split into two groups of models. The **client-side inspection models** are pure TypeScript types defined in `lib/demo-data.ts` — they describe the shape of inspection results, individual declaration checks, and OCR evidence regions that flow through the UI and the mock service layer. The **server-side auth models** are Prisma schemas backed by PostgreSQL, managed by Better Auth and configured in `lib/auth.ts` — they represent persistent entities such as authenticated users, active sessions, linked accounts, and email verification tokens.
+
+---
+
+## Enums
+
+### InspectionStatus
+
+The top-level compliance verdict for a product label inspection.
+
+```typescript
+type InspectionStatus = "COMPLIANT" | "VIOLATION" | "UNCERTAIN";
+```
+
+| Value | Description |
+|---|---|
+| `"COMPLIANT"` | All mandatory declarations were detected and verified. The label meets Legal Metrology requirements. |
+| `"VIOLATION"` | One or more mandatory declarations are missing or incorrect. The product fails compliance. |
+| `"UNCERTAIN"` | OCR confidence was insufficient to make a definitive determination. Manual review is required. |
+
+### DeclarationStatus
+
+The outcome for a single declaration field within an inspection.
+
+```typescript
+type DeclarationStatus = "VERIFIED" | "MISSING" | "REVIEW";
+```
+
+| Value | Description |
+|---|---|
+| `"VERIFIED"` | The declaration was detected by OCR with high confidence and passed rule validation. |
+| `"MISSING"` | The declaration was not detected on the label at all. |
+| `"REVIEW"` | The declaration was detected but with low confidence, or the extracted value did not pass validation. Human review is needed. |
+
+---
+
+## Declaration
+
+Represents the inspection result for one individual mandatory field on a product label (e.g. MRP, net quantity, manufacturer name). Defined in `lib/demo-data.ts`.
+
+```typescript
+type Declaration = {
+  field: string;
+  value: string;
+  status: DeclarationStatus;
+  confidence: number;
+  evidenceNote?: string;
+};
+```
+
+<ResponseField name="field" type="string">
+  The name of the declaration field as it appears in the Legal Metrology checklist. Examples: `"MRP"`, `"Net quantity"`, `"Manufacturer / Packer"`, `"Country of origin"`.
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  The value extracted by OCR for this field. If the field was not detected, this will be `"Not detected"`. Examples: `"₹28.00"`, `"1 kg"`, `"Tata Consumer Products Ltd."`.
+</ResponseField>
+
+<ResponseField name="status" type="DeclarationStatus">
+  The compliance status for this field: `"VERIFIED"`, `"MISSING"`, or `"REVIEW"`.
+</ResponseField>
+
+<ResponseField name="confidence" type="number">
+  OCR confidence score for this field, on a scale of **0–100**. Scores above ~90 typically yield `"VERIFIED"` status; scores below ~60 tend to yield `"REVIEW"`.
+</ResponseField>
+
+<ResponseField name="evidenceNote" type="string">
+  An optional human-readable note describing how the value was extracted or why it received its status. Example: `"MRP ₹28.00"`, `"Net quantity detected from front label"`. May be `undefined` if no note was generated.
+</ResponseField>
+
+---
+
+## EvidenceRegion
+
+A bounding-box annotation produced by the OCR pipeline, indicating where on the label image a particular declaration was detected. Used to render overlay highlights in the UI. Defined in `lib/demo-data.ts`.
+
+```typescript
+type EvidenceRegion = {
+  label: string;
+  value: string;
+  confidence: number;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+```
+
+<ResponseField name="label" type="string">
+  The field name this region corresponds to. Example: `"MRP"`, `"NET QTY"`, `"PACKED ON"`.
+</ResponseField>
+
+<ResponseField name="value" type="string">
+  The extracted text value at this region. Example: `"₹28.00"`, `"1 kg"`, `"06/2026"`.
+</ResponseField>
+
+<ResponseField name="confidence" type="number">
+  OCR confidence score for the text detected in this region, on a scale of **0–100**.
+</ResponseField>
+
+<ResponseField name="top" type="number">
+  Distance from the **top** of the image to the top edge of the bounding box, expressed as a **percentage** of the total image height. Example: `22` means the box starts 22% from the top.
+</ResponseField>
+
+<ResponseField name="left" type="number">
+  Distance from the **left** edge of the image to the left edge of the bounding box, expressed as a **percentage** of the total image width.
+</ResponseField>
+
+<ResponseField name="width" type="number">
+  Width of the bounding box as a **percentage** of the total image width.
+</ResponseField>
+
+<ResponseField name="height" type="number">
+  Height of the bounding box as a **percentage** of the total image height.
+</ResponseField>
+
+---
+
+## Inspection
+
+The top-level record for a completed product label inspection. This is the primary data structure passed between services, stored in `localStorage` by the mock service layer, and rendered throughout the LexMetra UI. Defined in `lib/demo-data.ts`.
+
+```typescript
+type Inspection = {
+  id: string;
+  product: string;
+  manufacturer: string;
+  quantity: string;
+  status: InspectionStatus;
+  summary: string;
+  timestamp: string;
+  dateLabel: string;
+  declarations: Declaration[];
+  evidence: EvidenceRegion[];
+  image?: string;
+  saved: boolean;
+  score: number;
+};
+```
+
+<ResponseField name="id" type="string">
+  Unique inspection identifier in the format `"LM-YYYY-NNNN"`. Example: `"LM-2026-0042"`. Used as the primary key in the inspection register.
+</ResponseField>
+
+<ResponseField name="product" type="string">
+  The product name as declared on the label or entered by the inspector. Example: `"Tata Salt"`, `"Parle-G Biscuits"`.
+</ResponseField>
+
+<ResponseField name="manufacturer" type="string">
+  The manufacturer or packer name as extracted by OCR. Example: `"Tata Consumer Products Ltd."`. May be `"Not confidently extracted"` if OCR confidence was low.
+</ResponseField>
+
+<ResponseField name="quantity" type="string">
+  The net quantity declaration as a human-readable string. Example: `"1 kg"`, `"200 ml"`, `"250 g"`. Set to `"Review required"` when extraction failed.
+</ResponseField>
+
+<ResponseField name="status" type="InspectionStatus">
+  The overall compliance verdict: `"COMPLIANT"`, `"VIOLATION"`, or `"UNCERTAIN"`.
+</ResponseField>
+
+<ResponseField name="summary" type="string">
+  A short human-readable description of the inspection outcome. Example: `"8/8 declarations verified"`, `"6 verified · 2 require action"`, `"Net quantity requires review"`.
+</ResponseField>
+
+<ResponseField name="timestamp" type="string">
+  ISO 8601 timestamp of when the inspection was run. Example: `"2026-09-05T10:32:00+05:30"`.
+</ResponseField>
+
+<ResponseField name="dateLabel" type="string">
+  A localised, human-readable version of the timestamp for display in the UI. Example: `"Today, 10:32 AM"`, `"Yesterday, 03:16 PM"`, `"03 Sep, 11:12 AM"`.
+</ResponseField>
+
+<ResponseField name="declarations" type="Declaration[]">
+  The ordered list of individual declaration check results. Each entry corresponds to one mandatory field under the Legal Metrology rules.
+</ResponseField>
+
+<ResponseField name="evidence" type="EvidenceRegion[]">
+  OCR bounding-box annotations for the fields detected on the label image. May be an empty array if OCR produced no locatable regions.
+</ResponseField>
+
+<ResponseField name="image" type="string">
+  Optional. A data URL (`data:image/jpeg;base64,...`) or a public path (e.g. `/uploads/...`) for the product label image that was inspected. Used to render the annotated image overlay in the detail view.
+</ResponseField>
+
+<ResponseField name="saved" type="boolean">
+  Whether this inspection has been promoted to the inspector's register. `false` immediately after running; set to `true` via `markInspectionSaved()` in `lib/mock-services.ts` when the user saves it.
+</ResponseField>
+
+<ResponseField name="score" type="number">
+  A numeric compliance score from **0–100**. `100` indicates full compliance; lower values reflect the proportion of declarations that failed or required review. Example values from seed data: `100` (COMPLIANT), `75` (VIOLATION with 2 issues), `42` (UNCERTAIN).
+</ResponseField>
+
+---
+
+## Prisma Auth Models
+
+The server-side authentication models are managed by Better Auth using the Prisma adapter with PostgreSQL. These models are configured in `lib/auth.ts` and reflect the standard Better Auth schema. For the full Prisma schema definition, see the **Database** configuration page.
+
+| Model | Description |
+|---|---|
+| `User` | Inspector account record. Stores `id`, `email`, `name`, `image`, `role`, `createdAt`, and `updatedAt`. |
+| `Session` | An active authenticated session. Stores the session `token`, `userId` foreign key, `expiresAt`, and `ipAddress`. Sessions expire after **7 days** (configurable via `session.expiresIn` in `lib/auth.ts`). |
+| `Account` | An OAuth or credential-based account linked to a `User`. Supports future OAuth provider integrations alongside the current email/password flow. |
+| `Verification` | Short-lived token records used for email verification and password reset flows managed by Better Auth. |
+
+<Note>
+  LexMetra currently uses **email and password** authentication only (`emailAndPassword: { enabled: true }`). The `Account` and `Verification` models are part of the standard Better Auth schema and are present in the database to support future OAuth providers and email verification workflows without requiring a schema migration.
+</Note>

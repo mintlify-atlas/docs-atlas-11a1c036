@@ -1,0 +1,114 @@
+---
+title: "POST /api/upload — Upload and Compress Product Label Image"
+sidebarTitle: "Upload"
+description: "Next.js API route that accepts a product label image, compresses it to 1200px width JPEG at quality 80 using Sharp, and returns a public URL."
+---
+
+The `/api/upload` endpoint handles product label image ingestion for LexMetra. It accepts a raw image file, compresses and normalises it using [Sharp](https://sharp.pixelplumbing.com/), writes the result to the `public/uploads/` directory, and returns a public URL that can be used directly in the UI or passed along to the `/api/inspect` endpoint. This approach keeps image sizes predictable and ensures consistent input quality for OCR processing downstream.
+
+## Endpoint
+
+```
+POST http://localhost:3000/api/upload
+```
+
+**Content-Type:** `multipart/form-data`
+
+---
+
+## Request
+
+<ParamField body="image" type="File" required>
+  The product label image to upload. Accepted formats: **JPEG**, **PNG**. Send as a form file field named `image`. The file is read into a `Buffer` and processed by Sharp before being written to disk.
+</ParamField>
+
+---
+
+## Processing
+
+Sharp applies the following transformations in sequence before writing the file:
+
+1. **Resize** — scales the image down so its width does not exceed **1200 px**. The aspect ratio is preserved (`fit: "inside"`). Images smaller than 1200 px wide are **not enlarged** (`withoutEnlargement: true`).
+2. **Convert to JPEG** — re-encodes the image as JPEG at **quality 80** with **progressive** encoding enabled, regardless of the original format.
+3. **Save** — writes the compressed file to `public/uploads/` with a `Date.now()` timestamp prefix to avoid filename collisions.
+
+The resulting filename follows the pattern: `<timestamp>-<original-filename-with-spaces-replaced-by-dashes>.jpg`
+
+---
+
+## Response
+
+<ResponseField name="url" type="string">
+  The public path to the uploaded and compressed image, relative to the Next.js origin. Example: `/uploads/1234567890-product-label.jpg`. Prepend `http://localhost:3000` (or your production domain) to construct the full URL.
+</ResponseField>
+
+```json
+{
+  "url": "/uploads/1234567890-product-label.jpg"
+}
+```
+
+---
+
+## Error Responses
+
+| Status | Body | Condition |
+|---|---|---|
+| `400` | `{ "error": "No file" }` | The `image` field is absent from the multipart form data |
+| `500` | `{ "error": "Upload failed" }` | Sharp processing error, disk write failure, or any other unexpected server error |
+
+---
+
+## curl Example
+
+```bash
+curl -X POST http://localhost:3000/api/upload \
+  -F "image=@product-label.jpg"
+# Response: { "url": "/uploads/1234567890-product-label.jpg" }
+```
+
+---
+
+## Source Code
+
+The full implementation in `app/api/(misc)/upload/route.ts`:
+
+```typescript
+// app/api/upload/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { writeFile, mkdir } from "fs/promises";
+import path from "path";
+import sharp from "sharp";
+
+const UPLOAD_DIR = path.join(process.cwd(), "public/uploads");
+
+export async function POST(req: NextRequest) {
+  try {
+    await mkdir(UPLOAD_DIR, { recursive: true });
+
+    const formData = await req.formData();
+    const file = formData.get("image") as File;
+    if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
+
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Compress to 1200px width, JPEG quality 80
+    const compressed = await sharp(buffer)
+      .resize(1200, null, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80, progressive: true })
+      .toBuffer();
+
+    const filename = `${Date.now()}-${file.name.replace(/\s/g, "-")}`;
+    const filepath = path.join(UPLOAD_DIR, filename);
+    await writeFile(filepath, compressed);
+
+    return NextResponse.json({
+      url: `/uploads/${filename}`,
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+  }
+}
+```

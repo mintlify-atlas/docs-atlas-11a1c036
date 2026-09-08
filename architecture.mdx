@@ -1,0 +1,251 @@
+---
+title: "LexMetra System Architecture and Tech Stack"
+sidebarTitle: "Architecture"
+description: "Overview of LexMetra's two-service architecture: Next.js 16 frontend with Prisma and Better Auth, and a FastAPI Python backend for OCR processing."
+---
+
+LexMetra is built as two independently runnable services: a **Next.js 16 frontend** that handles the inspector UI, authentication, image upload, and client-side compliance logic, and a **FastAPI Python backend** that exposes an OCR inspection API for image analysis. User accounts and sessions are stored in PostgreSQL via Prisma ORM, while inspection records are persisted client-side in `localStorage` — keeping field-use fast and offline-capable without requiring a database round-trip on every inspection.
+
+## Architecture Diagram
+
+<Note>
+  The diagram below shows how the browser, Next.js frontend, FastAPI backend, and PostgreSQL database relate to each other. The frontend and backend are separate processes and can be deployed independently.
+</Note>
+
+```
+┌─────────────────────────────────┐
+│         Browser / Inspector     │
+└──────────────┬──────────────────┘
+               │ HTTPS
+┌──────────────▼──────────────────┐
+│   Next.js 16 Frontend (port 3000)│
+│  ┌──────────┐  ┌──────────────┐ │
+│  │ App Pages│  │  API Routes  │ │
+│  └──────────┘  └──────┬───────┘ │
+│                       │         │
+│  ┌────────────────────▼───────┐ │
+│  │  Better Auth + Prisma ORM  │ │
+│  └────────────────────┬───────┘ │
+└───────────────────────┼─────────┘
+                        │
+          ┌─────────────▼──────────┐
+          │   PostgreSQL Database  │
+          └────────────────────────┘
+
+┌───────────────────────────────────┐
+│  FastAPI Backend (port 8000)       │
+│  POST /api/inspect (OCR engine)    │
+│  POST /api/upload (image upload)   │
+└───────────────────────────────────┘
+```
+
+The browser communicates exclusively with the Next.js frontend. The Next.js API routes talk to PostgreSQL (for auth) and can proxy requests to the FastAPI backend (for OCR). CORS on the FastAPI service is explicitly configured to accept requests from `localhost:3000` and `localhost:5173` only.
+
+## Frontend Stack
+
+The frontend is a Next.js 16 application written in TypeScript, using the App Router and React Server Components.
+
+<CardGroup cols={2}>
+  <Card title="Next.js 16.3.4" icon="n">
+    App Router, React Server Components, and built-in image optimisation via `sharp`. The `next.config.ts` is minimal — all configuration is handled through environment variables and Prisma.
+  </Card>
+  <Card title="React 19.2.8" icon="react">
+    The latest stable React release, enabling concurrent features and the new `use()` hook for async data in server components.
+  </Card>
+  <Card title="Tailwind CSS v4" icon="paintbrush">
+    Utility-first CSS with the new `@tailwindcss/postcss` v4 plugin pipeline, combined with `tw-animate-css` for entrance animations.
+  </Card>
+  <Card title="shadcn/ui + Base UI" icon="blocks">
+    Accessible component primitives from `@base-ui/react` and `shadcn` provide dialogs, sheets, command palette (`cmdk`), and OTP input (`input-otp`).
+  </Card>
+  <Card title="Better Auth v1.7.3" icon="lock">
+    Server-side authentication library with email/password support, 7-day session expiry (refreshed daily), and a Next.js cookie plugin for seamless SSR session access.
+  </Card>
+  <Card title="Prisma v7.10 + pg adapter" icon="database">
+    Type-safe ORM with the `@prisma/adapter-pg` native PostgreSQL driver adapter for edge-compatible database access from Next.js API routes.
+  </Card>
+</CardGroup>
+
+**Additional frontend dependencies:**
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `sharp` | ^0.35.4 | Server-side image compression before upload |
+| `date-fns` | ^4.4.0 | Date formatting for inspection timestamps |
+| `recharts` | ^3.8.0 | Compliance score charts on the dashboard |
+| `sonner` | ^2.0.8 | Toast notifications for save/error feedback |
+| `embla-carousel-react` | ^8.6.0 | Evidence region carousel in inspection detail |
+| `react-day-picker` | ^10.0.1 | Date range picker for register filtering |
+| `lucide-react` | ^1.42.0 | Icon set used throughout the UI |
+
+## Backend Stack
+
+The FastAPI backend is a single-file Python service (`backend/main.py`) that accepts multipart form submissions containing the product image and inspection metadata.
+
+<CardGroup cols={2}>
+  <Card title="FastAPI" icon="bolt">
+    ASGI web framework providing automatic OpenAPI documentation at `/docs` and `/redoc`, with type-validated request bodies via Pydantic.
+  </Card>
+  <Card title="Uvicorn" icon="server">
+    ASGI server that runs the FastAPI application. In development it starts with `reload=True` so code changes are picked up automatically.
+  </Card>
+  <Card title="python-multipart" icon="file-image">
+    Enables FastAPI to parse `multipart/form-data` requests, which is how the frontend sends the product image and inspection parameters together in a single HTTP call.
+  </Card>
+  <Card title="CORS Middleware" icon="shield">
+    Configured to allow all methods and headers from `http://localhost:3000` (Next.js) and `http://localhost:5173` (Vite dev server), with credentials support enabled.
+  </Card>
+</CardGroup>
+
+**Current backend endpoints:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Root health check — returns service name and status |
+| `GET` | `/api/health` | Liveness probe — returns `{"status": "healthy"}` |
+| `POST` | `/api/inspect` | Main inspection endpoint — accepts image, product name, sale type, import flag, and net quantity |
+
+<Note>
+  The `/api/inspect` endpoint currently returns a placeholder response while the full OCR and rules engine is under development. The frontend's client-side mock service (`lib/mock-services.ts`) provides realistic demo results in the meantime.
+</Note>
+
+## Database Schema
+
+All four Prisma models are managed exclusively by Better Auth and are used for user identity and session management. Inspection records are **not** stored in PostgreSQL.
+
+<Tabs>
+  <Tab title="User">
+    Represents a registered Legal Metrology officer or administrator.
+
+    | Field | Type | Notes |
+    |-------|------|-------|
+    | `id` | `String` (cuid) | Primary key |
+    | `email` | `String` | Unique — used as login identifier |
+    | `name` | `String` | Display name |
+    | `password` | `String?` | Hashed — nullable for OAuth users |
+    | `emailVerified` | `Boolean` | Defaults to `false` |
+    | `image` | `String?` | Avatar URL |
+    | `role` | `String` | Defaults to `"inspector"` |
+    | `createdAt` / `updatedAt` | `DateTime` | Automatic timestamps |
+  </Tab>
+  <Tab title="Session">
+    Tracks an active authenticated session created by Better Auth.
+
+    | Field | Type | Notes |
+    |-------|------|-------|
+    | `id` | `String` (cuid) | Primary key |
+    | `userId` | `String` | FK → `User` (cascade delete) |
+    | `token` | `String` | Unique session token stored in cookie |
+    | `expiresAt` | `DateTime` | 7-day TTL, refreshed after 24 h of activity |
+    | `ipAddress` | `String?` | Recorded at login |
+    | `userAgent` | `String?` | Browser/client identifier |
+  </Tab>
+  <Tab title="Account">
+    Links a `User` to an authentication provider (credential or future OAuth).
+
+    | Field | Type | Notes |
+    |-------|------|-------|
+    | `id` | `String` (cuid) | Primary key |
+    | `userId` | `String` | FK → `User` (cascade delete) |
+    | `accountId` | `String` | Provider-assigned account ID |
+    | `providerId` | `String` | e.g. `"credential"` for email/password |
+    | `accessToken` / `refreshToken` | `String?` | OAuth tokens when applicable |
+    | `password` | `String?` | Hashed credential password |
+  </Tab>
+  <Tab title="Verification">
+    Short-lived tokens for email verification and password-reset flows.
+
+    | Field | Type | Notes |
+    |-------|------|-------|
+    | `id` | `String` (cuid) | Primary key |
+    | `identifier` | `String` | Email address being verified |
+    | `value` | `String` | The one-time token value |
+    | `expiresAt` | `DateTime` | Token TTL |
+  </Tab>
+</Tabs>
+
+## Data Flow for an Inspection
+
+<Steps>
+
+### Inspector captures or uploads an image
+
+The inspector either takes a photo in-browser or uploads a JPEG/PNG file of the product label from their device.
+
+### Frontend compresses the image
+
+The Next.js API route uses `sharp` (v0.35.4) to resize and compress the image server-side before returning a URL back to the browser, keeping payload sizes manageable on mobile connections.
+
+### Frontend calls the FastAPI backend
+
+The browser sends a `POST` request to `http://localhost:8000/api/inspect` as `multipart/form-data`, including the compressed image binary and the inspection metadata fields:
+
+```python
+# FastAPI endpoint signature (backend/main.py)
+@app.post("/api/inspect")
+async def inspect(
+    image: UploadFile = File(...),
+    product_name: str = Form(""),
+    sale_type: str = Form("retail"),
+    is_imported: bool = Form(False),
+    net_quantity_grams_or_ml: float = Form(0)
+):
+```
+
+### OCR engine processes the label
+
+The backend reads the image bytes, runs OCR analysis against the label, and applies the Legal Metrology (Packaged Commodities) Rules to check each of the eight mandatory declarations.
+
+### Backend returns the inspection result
+
+The response includes an `inspection_id`, per-field declaration results, an `overall_status`, and confidence scores for each detected region.
+
+### Compliance score is computed
+
+The frontend calculates the numeric compliance score (0–100) from the declaration results and determines the overall status: `COMPLIANT`, `VIOLATION`, or `UNCERTAIN`.
+
+### Result is saved to localStorage
+
+The completed `Inspection` object is written to `localStorage` via `persistInspection()` in `lib/mock-services.ts`. The inspector can then review the result and click **"Save to register"** to mark it as `saved: true`.
+
+</Steps>
+
+## Client-Side Persistence
+
+<Info>
+  LexMetra uses a split-persistence model: **user accounts and sessions** live in PostgreSQL (managed by Better Auth and Prisma), while **inspection records** live entirely in the browser's `localStorage`.
+</Info>
+
+Inspection records are stored under the key **`the-inspectors-inspections`** as a JSON array of `Inspection` objects. The relevant fields are:
+
+```typescript
+// from frontend/lib/demo-data.ts
+export type Inspection = {
+  id: string;           // e.g. "LM-2026-0042"
+  product: string;
+  manufacturer: string;
+  quantity: string;
+  status: InspectionStatus;    // "COMPLIANT" | "VIOLATION" | "UNCERTAIN"
+  summary: string;
+  timestamp: string;           // ISO 8601
+  declarations: Declaration[];
+  evidence: EvidenceRegion[];
+  image?: string;              // base64 or object URL
+  saved: boolean;              // true = in compliance register
+  score: number;               // 0–100
+};
+```
+
+The helper functions in `lib/mock-services.ts` manage all reads and writes:
+
+| Function | Behaviour |
+|----------|-----------|
+| `loadInspections()` | Reads and parses the `localStorage` array; returns `[]` on error |
+| `saveInspections(inspections)` | Serialises and writes the full array back to `localStorage` |
+| `persistInspection(inspection)` | Prepends a new or updated inspection, replacing any with the same `id` |
+| `markInspectionSaved(id)` | Sets `saved: true` on a specific inspection (promotes to register) |
+| `getInspectionById(id)` | Looks up a single inspection by ID |
+
+<Warning>
+  Because `localStorage` is browser- and device-scoped, inspection records are not shared between different devices or browsers. A server-side persistence layer is planned for production deployments to support multi-device access and departmental record-keeping requirements.
+</Warning>

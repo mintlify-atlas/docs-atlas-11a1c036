@@ -1,47 +1,186 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get LexMetra Running Locally in 10 Minutes"
+sidebarTitle: "Quickstart"
+description: "Step-by-step guide to running the LexMetra Next.js frontend and FastAPI backend locally, including database setup and demo login credentials."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+This guide walks you through cloning the LexMetra repository, installing dependencies for both the Next.js frontend and FastAPI backend, setting up the PostgreSQL database, and logging in with the built-in demo credentials — all in under ten minutes. If you only want to explore the UI, you can skip the database steps and use demo mode, which requires no database at all.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+### Prerequisites
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+Make sure the following are installed on your machine before you begin:
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
-</Steps>
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **Python 3.9+** — [python.org](https://python.org)
+- **PostgreSQL 14+** — [postgresql.org](https://postgresql.org) *(optional — skip if using demo mode)*
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  If you do not have PostgreSQL available, LexMetra still runs fully in **demo mode**. Inspection data is persisted in `localStorage` and the mock OCR service requires no database connection. You will only need a database to enable authenticated user accounts via Better Auth.
 </Tip>
+
+### Clone the Repository
+
+Open your terminal and run:
+
+```bash
+git clone https://github.com/1ndrajeet/lexmetra
+cd lexmetra
+```
+
+### Set Up the Frontend
+
+Navigate into the frontend directory and install Node.js dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+Next, create a `.env.local` file in the `frontend/` directory with the following variables:
+
+```bash frontend/.env.local
+# PostgreSQL connection string (required for user auth)
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/lexmetra"
+
+# Secret used by Better Auth to sign session tokens — use any long random string
+BETTER_AUTH_SECRET="replace-with-a-long-random-secret"
+```
+
+<Warning>
+  Never commit `.env.local` to version control. It contains your database credentials and session signing secret.
+</Warning>
+
+### Set Up the Database
+
+With your `DATABASE_URL` set, apply the Prisma migrations to create the four database tables that Better Auth requires:
+
+```bash
+npx prisma migrate deploy
+```
+
+This creates the following models in your PostgreSQL database:
+
+| Model | Purpose |
+|-------|---------|
+| `User` | Inspector account — stores email, hashed password, name, and `role` (default: `inspector`) |
+| `Session` | Active login sessions with expiry timestamp, IP address, and user agent |
+| `Account` | OAuth / credential provider linkage per user |
+| `Verification` | Short-lived tokens used for email verification and password resets |
+
+<Note>
+  If you prefer to inspect the schema directly, it lives at `frontend/prisma/schema.prisma`.
+</Note>
+
+### Start the Frontend
+
+```bash
+npm run dev
+```
+
+The Next.js development server will start and the app will be available at [http://localhost:3000](http://localhost:3000).
+
+### Set Up the Backend
+
+Open a **new terminal window**, navigate to the `backend/` directory, install the Python dependencies, and start the FastAPI server:
+
+```bash
+cd ../backend
+pip install fastapi uvicorn python-multipart
+python main.py
+```
+
+The FastAPI server runs on [http://localhost:8000](http://localhost:8000). You can verify it is healthy at:
+
+```bash
+curl http://localhost:8000/api/health
+# {"status":"healthy"}
+```
+
+The interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI) and [http://localhost:8000/redoc](http://localhost:8000/redoc).
+
+### Log In with Demo Credentials
+
+Open [http://localhost:3000](http://localhost:3000) in your browser and sign in with the pre-seeded demo account:
+
+| Field | Value |
+|-------|-------|
+| **Email** | `admin@demo.gov` |
+| **Password** | `password123` |
+
+<Warning>
+  The demo credentials are for local development only. Change them — or remove the seed account — before deploying to any shared or production environment.
+</Warning>
+
+</Steps>
+
+<Note>
+  **Demo mode and the mock OCR service** — LexMetra's frontend ships with a fully client-side mock OCR service located in `frontend/lib/mock-services.ts`. When you run an inspection, `inspectPackage()` waits 250 ms to simulate network latency and then returns one of three realistic seed inspection records (compliant, violation, or uncertain) from `frontend/lib/demo-data.ts`. No real image analysis takes place, and no call is made to the FastAPI backend during a demo inspection. All inspection records are stored in `localStorage` under the key `the-inspectors-inspections` as a JSON array — they persist across page reloads but are scoped to the browser and device.
+</Note>
+
+## Running the Demo
+
+Once you are logged in, the complete inspection flow takes about 30 seconds:
+
+<Steps>
+
+### Open the Dashboard
+
+After signing in you land on the main dashboard, which shows your recent inspection history and compliance register summary.
+
+### Start a New Inspection
+
+Click the **"Start inspection"** button. You will be prompted to provide a product image.
+
+### Capture or Upload an Image
+
+<Tabs>
+  <Tab title="Upload a photo">
+    Click **"Upload image"** and select any JPEG or PNG file of a packaged product label from your device.
+  </Tab>
+  <Tab title="Use demo capture">
+    Click **"Demo capture"** to use one of the built-in seed images. This triggers the mock OCR service and is the fastest way to see a result without a physical product on hand.
+  </Tab>
+</Tabs>
+
+### Review the Extracted Declarations
+
+LexMetra displays all eight mandatory declarations in a checklist. Each row shows the extracted value, a confidence percentage, and a status badge:
+
+- ✅ **VERIFIED** — declaration found with high confidence
+- ⚠️ **REVIEW** — declaration detected but confidence is low
+- ❌ **MISSING** — declaration could not be found on the label
+
+The overall compliance score (0–100) and status (COMPLIANT / VIOLATION / UNCERTAIN) appear at the top of the results panel.
+
+### Save to the Compliance Register
+
+Click **"Save to register"** to promote the inspection to your compliance register. Saved inspections are marked with `saved: true` in `localStorage` and appear in the register tab of the dashboard.
+
+</Steps>
+
+## Available API Endpoints
+
+Once the FastAPI backend is running, the following endpoints are available:
+
+<CodeGroup>
+
+```bash Health Check
+curl http://localhost:8000/api/health
+```
+
+```bash Root Status
+curl http://localhost:8000/
+```
+
+```bash Run Inspection
+curl -X POST http://localhost:8000/api/inspect \
+  -F "image=@/path/to/label.jpg" \
+  -F "product_name=Tata Salt" \
+  -F "sale_type=retail" \
+  -F "is_imported=false" \
+  -F "net_quantity_grams_or_ml=1000"
+```
+
+</CodeGroup>

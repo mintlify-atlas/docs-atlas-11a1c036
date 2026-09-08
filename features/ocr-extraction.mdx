@@ -1,0 +1,123 @@
+---
+title: "OCR-Based Declaration Extraction from Product Labels"
+sidebarTitle: "OCR Extraction"
+description: "How LexMetra extracts statutory declarations from product label images using OCR, confidence scoring, and evidence region bounding boxes."
+---
+
+LexMetra's OCR extraction layer is responsible for reading a product label image and identifying the statutory declarations that must appear on every pre-packaged commodity sold in India under the Legal Metrology (Packaged Commodities) Rules 2011. Each extracted field is assigned a confidence score and, where possible, an evidence region — a bounding box on the original image that pinpoints where the declaration was detected.
+
+## Eight Mandatory Declarations
+
+LexMetra attempts to locate and verify the following eight fields on every scanned label. These map directly to the mandatory declarations prescribed under the Packaged Commodities Rules.
+
+| Field | Type | Example Value |
+|---|---|---|
+| Product name | String | `Tata Salt` |
+| Manufacturer / Packer | String | `Tata Consumer Products Ltd.` |
+| Net quantity | Weight or volume | `1 kg` |
+| MRP | Currency | `₹28.00` |
+| Packed on | Month/year | `06/2026` |
+| Best before | Duration or date | `12 months` |
+| Consumer care | Phone number | `1800-108-4488` |
+| Country of origin | Country string | `India` |
+
+All eight fields must reach `VERIFIED` status for an overall `COMPLIANT` result. Any single `MISSING` field is sufficient to trigger a `VIOLATION`.
+
+## Declaration Status Values
+
+Each extracted field is assigned one of three `DeclarationStatus` values based on the OCR confidence score returned for that field.
+
+<Tabs>
+  <Tab title="VERIFIED">
+    The field was detected with a confidence score at or above the verification threshold (approximately 66 and above in practice). The extracted value is considered reliable for compliance purposes.
+
+    **Example:** Product name `Tata Salt` at confidence 99%.
+  </Tab>
+  <Tab title="REVIEW">
+    The field was detected but with a confidence score in the low-to-mid range (approximately 20–65). The value has been extracted but an officer should manually cross-check it against the physical label before making a compliance decision.
+
+    **Example:** Best before `Not detected` at confidence 58% — the text region was found but could not be parsed cleanly.
+  </Tab>
+  <Tab title="MISSING">
+    The field was not detected, or was detected with a confidence score below 20. The declaration is treated as absent from the label, which constitutes a violation of the Packaged Commodities Rules.
+
+    **Example:** Consumer care `Not detected` at confidence 16%.
+  </Tab>
+</Tabs>
+
+## Confidence Scores
+
+Every `Declaration` object carries a numeric `confidence` field ranging from 0 to 100, representing the extraction model's certainty that the detected text correctly represents the declared field. Confidence is displayed alongside each declaration in the result view (visible on wider screens) and drives both the `DeclarationStatus` assignment and the overall inspection `score`.
+
+```typescript
+type Declaration = {
+  field: string;
+  value: string;
+  status: DeclarationStatus;  // "VERIFIED" | "MISSING" | "REVIEW"
+  confidence: number;          // 0–100
+  evidenceNote?: string;
+};
+```
+
+The optional `evidenceNote` field carries a human-readable annotation when the extraction pipeline has additional context — for example `"MRP ₹28.00"` or `"Net quantity detected from front label"`.
+
+## Evidence Regions
+
+When the OCR pipeline successfully localises a declaration on the label image, it produces an `EvidenceRegion` that records both the extracted value and its position as percentage-based coordinates relative to the original image dimensions. These regions are rendered as interactive bounding-box overlays in the **Evidence viewer** (`evidence` view).
+
+```typescript
+type EvidenceRegion = {
+  label: string;
+  value: string;
+  confidence: number;
+  top: number;    // % from top of image
+  left: number;   // % from left of image
+  width: number;  // % of image width
+  height: number; // % of image height
+};
+```
+
+Clicking a region in the Evidence viewer highlights it and shows its detected text and confidence score in the detail panel on the right. Regions are styled with a brand-colour border and semi-transparent fill; the active region gets a solid border to distinguish it from passive markers.
+
+<Info>
+  An inspection may have zero evidence regions (for example the `UNCERTAIN` fixture has an empty `evidence` array). In this case the Evidence viewer shows a "Human review recommended" warning banner instead of annotated regions.
+</Info>
+
+## Current Implementation
+
+<Note>
+  `ocrService.extractText()` is currently a **mock** implementation. Calling it returns a fixed object `{ source: "uploaded-image" | "demo-image", text: "mock structured label text" }` after a 500 ms artificial delay, regardless of the actual image content.
+
+  The production OCR pipeline — which will use a real ML model to detect and parse label regions — is under active development. Similarly, the FastAPI `/api/inspect` endpoint (`POST /api/inspect`) currently returns a static placeholder response:
+
+  ```json
+  {
+    "inspection_id": "demo-001",
+    "product_name": "Unnamed",
+    "overall_status": "PASS",
+    "results": []
+  }
+  ```
+
+  All live inspections in the current release are served from the three fixture cases in `demo-data.ts` via `getDemoCase()`, not from a real OCR or rules engine.
+</Note>
+
+## Image Upload Flow
+
+When a user submits a real image (camera capture or gallery upload), the frontend encodes it as a JPEG data-URL on the client. In the production pipeline, this image will be sent to the `/api/upload` endpoint as `multipart/form-data`. The upload handler:
+
+<Steps>
+  <Step title="Receive multipart payload">
+    The endpoint accepts the image as an `UploadFile` field in a `multipart/form-data` request body alongside optional metadata fields such as `product_name`, `sale_type`, `is_imported`, and `net_quantity_grams_or_ml`.
+  </Step>
+  <Step title="Compress with sharp">
+    The image is resized to a maximum width of **1 200 px** and re-encoded as JPEG at **quality 80** using the `sharp` image processing library, keeping file sizes manageable for the OCR pipeline.
+  </Step>
+  <Step title="Return URL">
+    The compressed image is stored and a URL is returned to the frontend for embedding in the `Inspection` record's optional `image` field, which is used to render the product thumbnail and the annotated evidence view.
+  </Step>
+</Steps>
+
+<Warning>
+  The `/api/upload` endpoint is part of the production roadmap and is not yet active. In the current demo build, captured images are stored as base-64 data-URLs directly on the `Inspection` object in localStorage — no server upload occurs.
+</Warning>

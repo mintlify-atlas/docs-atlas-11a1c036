@@ -1,0 +1,105 @@
+{
+  "projectType": "saas",
+  "projectName": "LexMetra",
+  "projectDescription": "AI-assisted Legal Metrology compliance platform for inspecting packaged commodity labels against statutory declaration requirements.",
+  "theme": "luma",
+  "primaryColor": "#0f172a",
+  "lightColor": "#f8fafc",
+  "darkColor": "#0f172a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/inspection",
+              "features/ocr-extraction",
+              "features/compliance-rules",
+              "features/history-register"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/database",
+              "configuration/authentication"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/frontend",
+              "deployment/backend",
+              "deployment/self-hosting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/auth",
+              "api/inspect",
+              "api/upload",
+              "api/health"
+            ]
+          },
+          {
+            "group": "Data Models",
+            "pages": [
+              "api/models"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered OCR extraction of product label declarations",
+    "Compliance scoring against Legal Metrology (Packaged Commodities) Rules",
+    "Real-time camera capture or image upload for product label scanning",
+    "Inspection history with searchable audit trail",
+    "Compliance register for verified products",
+    "Evidence region highlighting on captured images",
+    "Downloadable inspection reports",
+    "Role-based authentication (inspector role) with email/password",
+    "FastAPI backend for OCR processing with CORS support",
+    "Next.js 16 frontend with Prisma + PostgreSQL for session management",
+    "Mobile-first UI with bottom navigation and desktop sidebar"
+  ],
+  "publicApiSurface": [
+    "GET / — health check (FastAPI backend)",
+    "GET /api/health — backend health status",
+    "POST /api/inspect — submit product image for compliance inspection",
+    "POST /api/upload — upload and compress product label image",
+    "GET /api/health/db — database connectivity check",
+    "POST /api/auth/user/image — update user profile image",
+    "GET|POST /api/auth/[...all] — Better Auth handler (sign-in, sign-up, session)",
+    "inspectPackage(image?, demoSeed?) — client-side mock inspection service",
+    "persistInspection(inspection) — save inspection to localStorage",
+    "markInspectionSaved(id) — mark inspection as registered",
+    "loadInspections() / saveInspections(inspections) — localStorage persistence layer",
+    "ocrService.extractText(image?) — OCR mock service",
+    "complianceService.evaluate(inspection) — compliance evaluation service"
+  ]
+}

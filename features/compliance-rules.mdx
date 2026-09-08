@@ -1,0 +1,86 @@
+---
+title: "Legal Metrology Compliance Rules and Scoring"
+sidebarTitle: "Compliance Rules"
+description: "How LexMetra evaluates extracted declarations against Legal Metrology (Packaged Commodities) Rules and calculates inspection scores from 0 to 100."
+---
+
+LexMetra's compliance rules engine takes the set of `Declaration` objects produced by the OCR extraction layer and applies a structured evaluation to determine whether a pre-packaged commodity label meets the statutory requirements. The result is a numeric score from 0 to 100 and an overall `InspectionStatus` verdict that guides the inspector's next action.
+
+## Regulatory Context
+
+LexMetra enforces the **Legal Metrology (Packaged Commodities) Rules 2011**, made under the **Legal Metrology Act 2009** (Government of India). These rules mandate that every pre-packaged commodity offered for retail sale in India must carry specific declarations on its principal display panel. The Act is administered by the Department of Consumer Affairs, and enforcement is delegated to state-level Legal Metrology officers — the primary users of LexMetra.
+
+Non-compliance can result in penalties for the manufacturer, packer, importer, or seller. LexMetra is designed to assist officers in conducting faster, evidence-backed inspections in the field, generating digital records that can support enforcement actions.
+
+## Inspection Scoring
+
+The `score` field on an `Inspection` object is an integer from **0 to 100** representing the percentage of the eight mandatory declarations that were assigned `VERIFIED` status by the extraction pipeline.
+
+<AccordionGroup>
+  <Accordion title="Score 100 — All fields VERIFIED (COMPLIANT)">
+    Every one of the eight mandatory declarations was extracted with a confidence score above the verification threshold. The label is considered fully compliant with the demo rule set.
+
+    **Example:** Tata Salt (ID `LM-2026-0042`) — 8/8 declarations verified, score 100, status `COMPLIANT`.
+  </Accordion>
+  <Accordion title="Score 75 — Partial verification (VIOLATION)">
+    Six of the eight fields were `VERIFIED`. One field (`Best before`) was assigned `REVIEW` at confidence 58%, and one (`Consumer care`) was `MISSING` at confidence 16%. The presence of any `MISSING` declaration is sufficient to trigger a `VIOLATION` status regardless of the overall score.
+
+    **Example:** Demo Shampoo (ID `LM-2026-0039`) — 6 verified · 2 require action, score 75, status `VIOLATION`.
+  </Accordion>
+  <Accordion title="Score 42 — Widespread low confidence (UNCERTAIN)">
+    Only one field (`Product name`) was verified with high confidence. Six fields were assigned `REVIEW` status with confidence scores ranging from 29 to 54, and the extraction pipeline could not produce a reliable verdict. The label is flagged as `UNCERTAIN` and referred for human review.
+
+    **Example:** Demo Food Package (ID `LM-2026-0036`) — majority of fields at low confidence, score 42, status `UNCERTAIN`.
+  </Accordion>
+</AccordionGroup>
+
+## Overall Status Determination
+
+The `InspectionStatus` is not determined purely by the score threshold. The rules engine applies a priority-based logic:
+
+| Status | Score range | Condition |
+|---|---|---|
+| `COMPLIANT` | ~88–100 | All mandatory declarations are `VERIFIED`; no `MISSING` or `REVIEW` fields remain |
+| `VIOLATION` | Any | At least one declaration has status `MISSING`, or a field critical to legal compliance is `REVIEW` |
+| `UNCERTAIN` | Any | OCR could not confidently extract multiple fields; an officer must review the original label |
+
+<Info>
+  A `VIOLATION` can occur even at a high score. For example, a product with seven `VERIFIED` fields and one `MISSING` field would score 87.5 yet still resolve as `VIOLATION` because the missing declaration is a statutory requirement.
+</Info>
+
+## Compliance Register
+
+LexMetra maintains two separate record collections with distinct purposes:
+
+**Inspection history** holds every scan the inspector performs, regardless of outcome. A record is created the moment `inspectPackage()` resolves and is added to the in-memory list and localStorage automatically.
+
+**Compliance register** is a curated subset of inspection history containing only products that an inspector has explicitly verified and saved. A record enters the register when the inspector taps **Save inspection** from the `ResultView`, triggering `markInspectionSaved(id)`. This sets `saved: true` on the `Inspection` object.
+
+The register view applies the filter `item.saved === true` when rendering the list, ensuring that raw, unreviewed scans are never surfaced as verified records. This separation is important for audit integrity: history is append-only evidence, while the register represents deliberate officer decisions.
+
+```typescript
+// Only records explicitly saved by the inspector appear in the register
+const registerRecords = inspections.filter((item) => item.saved);
+```
+
+## Reviewer Recommendation
+
+The formal inspection report generated by `ReportView` closes with a **Reviewer recommendation** paragraph. The text is determined entirely by the `InspectionStatus`:
+
+<CardGroup cols={3}>
+  <Card title="COMPLIANT" icon="circle-check">
+    "Record may be added to the compliance register after officer confirmation."
+  </Card>
+  <Card title="VIOLATION" icon="circle-xmark">
+    "Issue a review notice for missing or incomplete declarations before verification."
+  </Card>
+  <Card title="UNCERTAIN" icon="circle-info">
+    "Review the original evidence and request a clearer package image before deciding."
+  </Card>
+</CardGroup>
+
+These recommendations are rendered verbatim inside the report article and appear in both the on-screen report preview and the downloadable document.
+
+<Note>
+  The current release uses the **demo rule set** — a simplified evaluation based on the eight fixture declaration fields. The full production implementation will incorporate the complete PCR 2011 rule table, including commodity-specific quantity tolerances, import declaration requirements, and multi-unit pack rules as defined under the Legal Metrology (Packaged Commodities) Rules 2011.
+</Note>

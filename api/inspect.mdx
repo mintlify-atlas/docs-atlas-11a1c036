@@ -1,0 +1,120 @@
+---
+title: "POST /api/inspect — Submit Product Image for Inspection"
+sidebarTitle: "Inspect"
+description: "FastAPI endpoint that accepts a product label image and metadata, runs OCR extraction, and returns a compliance inspection result with declaration statuses."
+---
+
+The `/api/inspect` endpoint is the core of LexMetra's compliance pipeline. It accepts a product label image along with optional product metadata, processes the image through the OCR and rules engine, and returns a structured inspection result indicating whether the label meets Legal Metrology requirements. The endpoint is served by the FastAPI backend and requires no authentication, making it straightforward to integrate into automated scanning workflows.
+
+## Endpoint
+
+```
+POST http://localhost:8000/api/inspect
+```
+
+**Content-Type:** `multipart/form-data`
+
+---
+
+## Request
+
+The request must be sent as `multipart/form-data`. The `image` field is the only required field; all other fields are optional hints that improve OCR accuracy and rule evaluation.
+
+<ParamField body="image" type="file" required>
+  The product label image to inspect. Accepted formats: **JPEG**, **PNG**. The file is read into memory by FastAPI using `UploadFile`.
+</ParamField>
+
+<ParamField body="product_name" type="string" default='""'>
+  A hint for the product name (e.g. `"Tata Salt"`). When provided, this value is echoed back in the response as `product_name`. If omitted or empty, the response returns `"Unnamed"`.
+</ParamField>
+
+<ParamField body="sale_type" type="string" default='"retail"'>
+  The sales channel for the product. Affects which Legal Metrology rules apply. Accepted values: `"retail"`, `"wholesale"`, `"institutional"`.
+</ParamField>
+
+<ParamField body="is_imported" type="boolean" default="false">
+  Whether the product is imported. Imported products are subject to additional mandatory declarations under Legal Metrology rules (e.g. country of origin, importer address).
+</ParamField>
+
+<ParamField body="net_quantity_grams_or_ml" type="float" default="0">
+  A numeric hint for the expected net quantity in grams or millilitres. Used by the rules engine to cross-validate the quantity declaration extracted by OCR.
+</ParamField>
+
+---
+
+## Response
+
+The response is a JSON object summarising the inspection outcome.
+
+<ResponseField name="inspection_id" type="string">
+  A unique identifier for this inspection run, e.g. `"demo-001"`. In production this will be a generated ID suitable for audit logging.
+</ResponseField>
+
+<ResponseField name="product_name" type="string">
+  The product name derived from the `product_name` form field, or `"Unnamed"` if the field was not provided.
+</ResponseField>
+
+<ResponseField name="overall_status" type="string">
+  The top-level compliance verdict for the product label. One of:
+  - `"PASS"` — all checked declarations are present and valid
+  - `"FAIL"` — one or more mandatory declarations are missing or incorrect
+  - `"UNCERTAIN"` — OCR confidence was too low to make a definitive determination
+</ResponseField>
+
+<ResponseField name="results" type="array">
+  An array of individual declaration check results. Each element describes the outcome for a single mandatory field (e.g. MRP, net quantity, manufacturer). Currently returns an empty array in the placeholder implementation — see note below.
+</ResponseField>
+
+---
+
+## curl Example
+
+```bash
+curl -X POST http://localhost:8000/api/inspect \
+  -F "image=@product-label.jpg" \
+  -F "product_name=Tata Salt" \
+  -F "sale_type=retail" \
+  -F "is_imported=false" \
+  -F "net_quantity_grams_or_ml=1000"
+```
+
+## Example Response
+
+```json
+{
+  "inspection_id": "demo-001",
+  "product_name": "Tata Salt",
+  "overall_status": "PASS",
+  "results": []
+}
+```
+
+---
+
+## FastAPI Source
+
+The endpoint is defined in `backend/main.py`:
+
+```python
+@app.post("/api/inspect")
+async def inspect(
+    image: UploadFile = File(...),
+    product_name: str = Form(""),
+    sale_type: str = Form("retail"),
+    is_imported: bool = Form(False),
+    net_quantity_grams_or_ml: float = Form(0)
+):
+    # Placeholder - full OCR + rules coming next
+    return {
+        "inspection_id": "demo-001",
+        "product_name": product_name or "Unnamed",
+        "overall_status": "PASS",
+        "results": []
+    }
+```
+
+---
+
+<Note>
+  This endpoint currently returns **placeholder data**. The full OCR pipeline (text extraction, bounding-box detection) and the Legal Metrology rules engine are under active development. For richer demo data during frontend development, use the client-side `inspectPackage()` function from `lib/mock-services.ts` — it returns a fully populated `Inspection` object including `declarations`, `evidence` regions, a compliance `score`, and a human-readable `summary`, seeded from the fixture cases in `lib/demo-data.ts`.
+</Note>

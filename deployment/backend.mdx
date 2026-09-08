@@ -1,0 +1,112 @@
+---
+title: "Deploying the LexMetra FastAPI OCR Backend"
+sidebarTitle: "Backend"
+description: "Steps to deploy the LexMetra FastAPI Python backend for OCR processing, including dependency installation, CORS configuration, and production server setup."
+---
+
+The LexMetra backend is a FastAPI application that exposes a REST API for Legal Metrology compliance inspection. It accepts product images and metadata, runs them through the OCR and rules pipeline, and returns structured pass/fail results. The service listens on port `8000` and is designed to sit behind a reverse proxy in production.
+
+## Requirements
+
+Before installing, ensure the following are available on your host:
+
+- **Python 3.9 or later** — FastAPI and uvicorn require modern async support.
+- **pip** — standard Python package manager for dependency installation.
+- **uvicorn** — ASGI server used to run the FastAPI application.
+
+## Install Dependencies
+
+```bash
+cd backend
+pip install fastapi uvicorn python-multipart
+```
+
+`python-multipart` is required by FastAPI to parse `multipart/form-data` requests, which is how the `/api/inspect` endpoint receives uploaded images alongside form fields.
+
+## Start in Development
+
+Use the `--reload` flag during development so the server automatically restarts whenever source files change.
+
+```bash
+python main.py
+# or equivalently
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+`python main.py` triggers the `uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)` call defined at the bottom of `main.py` and is the simplest way to get started locally.
+
+## Start in Production
+
+Remove `--reload` and add `--workers` to utilise multiple CPU cores. A worker count of `2 × CPU cores + 1` is a common starting point.
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+<Note>
+  Uvicorn's multi-worker mode forks the process using `multiprocessing`. If you later introduce shared in-memory state (e.g. a model loaded at startup), consider using **Gunicorn with the uvicorn worker class** instead: `gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker`.
+</Note>
+
+## CORS Configuration
+
+The `CORSMiddleware` in `main.py` controls which origins are allowed to make cross-origin requests. By default it permits only the two local development origins. Before deploying to production, add your public domain:
+
+```python backend/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://lexmetra.yourdomain.com",  # add production origin
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Replace `https://lexmetra.yourdomain.com` with the actual public URL of your LexMetra frontend. If you are running behind a reverse proxy that terminates TLS, ensure this value matches the scheme and host seen by the browser, not the internal address.
+
+## Available Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Root health check — returns service name and `"status": "ok"` |
+| `GET` | `/api/health` | Health status — returns `"status": "healthy"` |
+| `POST` | `/api/inspect` | Submit an image and product metadata for compliance inspection |
+
+The `/api/inspect` endpoint accepts a `multipart/form-data` body with the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `image` | File | Product label image to inspect |
+| `product_name` | string | Human-readable product name (optional) |
+| `sale_type` | string | `"retail"` or `"wholesale"` (default: `"retail"`) |
+| `is_imported` | boolean | Whether the product is imported (default: `false`) |
+| `net_quantity_grams_or_ml` | float | Net quantity in grams or millilitres (default: `0`) |
+
+<Note>
+  The `/api/inspect` endpoint currently returns placeholder data with a hardcoded `"overall_status": "PASS"` and an empty `results` array. The full OCR and rules-based compliance pipeline is under active development and will be wired in a forthcoming release.
+</Note>
+
+## Deploy with Docker
+
+If your infrastructure uses containers, the following minimal `Dockerfile` packages the FastAPI application into a self-contained image:
+
+```dockerfile backend/Dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+RUN pip install fastapi uvicorn python-multipart
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Build and run:
+
+```bash
+docker build -t lexmetra-backend .
+docker run -p 8000:8000 lexmetra-backend
+```
+
+For production, append `--workers 4` to the `CMD` array and consider using a multi-stage build to keep the final image lean. You can also push the image to a container registry and deploy it via Docker Compose, Kubernetes, or any managed container service.

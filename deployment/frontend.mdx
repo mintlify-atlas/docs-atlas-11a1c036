@@ -1,0 +1,104 @@
+---
+title: "Deploying the LexMetra Next.js Frontend"
+sidebarTitle: "Frontend"
+description: "How to build and deploy the LexMetra Next.js 16 frontend to Vercel or any Node.js host, including environment variable configuration and database migration."
+---
+
+The LexMetra frontend is a Next.js 16 application backed by Prisma 7 and Better Auth for session management. Before going live, you need to compile the application, provision a production PostgreSQL database, and configure the three core environment variables that wire auth, sessions, and the database together.
+
+## Build the Application
+
+<Steps>
+  <Step title="Enter the frontend directory">
+    All build commands must be run from inside the `frontend/` folder.
+
+    ```bash
+    cd frontend
+    ```
+  </Step>
+
+  <Step title="Set required environment variables">
+    Create a `.env` file (or export these in your shell / CI environment) before running the build. Next.js bakes public variables at compile time, so they must be present when `npm run build` is executed.
+
+    ```bash
+    DATABASE_URL="postgresql://lexmetra_user:password@localhost:5432/lexmetra"
+    BETTER_AUTH_SECRET="a-long-random-secret-minimum-32-chars"
+    BETTER_AUTH_URL="https://lexmetra.yourdomain.com"
+    ```
+  </Step>
+
+  <Step title="Compile the application">
+    Running `npm run build` invokes `next build`, which compiles all routes, server components, and API handlers into the optimised `.next/` output directory.
+
+    ```bash
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Start the production server">
+    `npm run start` launches `next start`, serving the compiled `.next/` artefacts on port 3000.
+
+    ```bash
+    npm run start
+    ```
+  </Step>
+</Steps>
+
+## Deploy to Vercel
+
+Vercel is the recommended hosting target for Next.js 16 applications. It provides zero-config deployments, automatic preview environments, and seamless environment variable management.
+
+1. Push your repository to GitHub (or GitLab / Bitbucket).
+2. Import the project in the [Vercel dashboard](https://vercel.com/new) and set the **Root Directory** to `frontend`.
+3. Add the three required environment variables under **Settings → Environment Variables**:
+   - `DATABASE_URL`
+   - `BETTER_AUTH_SECRET`
+   - `BETTER_AUTH_URL`
+4. Every push to `main` triggers an automatic production deployment.
+
+<Note>
+  LexMetra uses **Prisma 7** with `@prisma/adapter-pg` for the PostgreSQL connection. This adapter requires the **Node.js 18.x or later** runtime. In the Vercel dashboard, confirm your project is not pinned to an older Node.js version under **Settings → General → Node.js Version**.
+</Note>
+
+## Deploy to a VPS
+
+For self-managed infrastructure, use **PM2** to supervise the Node.js process and ensure it restarts automatically on crashes or server reboots.
+
+```bash
+# Build the optimised output
+npm run build
+
+# Start and register with PM2
+pm2 start npm --name lexmetra-frontend -- start
+```
+
+To persist the PM2 process list across reboots:
+
+```bash
+pm2 save
+pm2 startup
+```
+
+If you prefer **systemd**, create a service unit at `/etc/systemd/system/lexmetra-frontend.service` and set `ExecStart` to the absolute path of your `next start` invocation.
+
+## Environment Variables Required for Production
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Production PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/lexmetra` |
+| `BETTER_AUTH_SECRET` | Random secret used to sign and verify session tokens — must be **identical across all replicas** |
+| `BETTER_AUTH_URL` | Canonical public URL of your deployment, e.g. `https://lexmetra.yourdomain.com` |
+
+## Database Migration in Production
+
+Always apply pending migrations before (re)starting the frontend server. The `migrate deploy` command is safe to run in CI/CD pipelines — it executes only unapplied migration SQL without generating new migration files.
+
+```bash
+npx prisma migrate deploy
+```
+
+The Prisma schema defines four models — `User`, `Session`, `Account`, and `Verification` — all backed by PostgreSQL. Ensure `DATABASE_URL` points to your production database when running this command.
+
+<Warning>
+  Never run `prisma migrate dev` in a production environment. That command creates new migration files, resets the shadow database, and can result in data loss. Use `prisma migrate deploy` exclusively for production deployments.
+</Warning>

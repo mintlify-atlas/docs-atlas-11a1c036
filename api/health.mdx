@@ -1,0 +1,107 @@
+---
+title: "Health Check Endpoints for LexMetra Services"
+sidebarTitle: "Health"
+description: "Reference for LexMetra's health check endpoints: FastAPI root and /api/health, and the Next.js /api/health/db database connectivity check."
+---
+
+LexMetra exposes three lightweight health check endpoints spread across its two services. The FastAPI backend provides a root ping and a dedicated `/api/health` route that confirm the Python process is alive and accepting requests. The Next.js layer adds a `/api/health/db` route that goes one level deeper, verifying that Prisma can establish a connection to the PostgreSQL database. Together these endpoints give operators a complete picture of system health without requiring authentication.
+
+---
+
+## GET / — FastAPI Root
+
+A minimal liveness check for the FastAPI backend.
+
+| Property | Value |
+|---|---|
+| **URL** | `http://localhost:8000/` |
+| **Method** | GET |
+| **Auth** | None |
+
+### Response
+
+```json
+{
+  "status": "ok",
+  "service": "Legal Metrology Compliance Platform"
+}
+```
+
+---
+
+## GET /api/health — FastAPI Health
+
+A dedicated health route for the FastAPI backend, suitable for container health probes.
+
+| Property | Value |
+|---|---|
+| **URL** | `http://localhost:8000/api/health` |
+| **Method** | GET |
+| **Auth** | None |
+
+### Response
+
+```json
+{
+  "status": "healthy"
+}
+```
+
+---
+
+## GET /api/health/db — Next.js Database Health
+
+Checks whether the Next.js server can reach PostgreSQL through Prisma. The route calls `checkDatabaseStatus()` from `lib/db.ts` and streams the result directly to the client.
+
+| Property | Value |
+|---|---|
+| **URL** | `http://localhost:3000/api/health/db` |
+| **Method** | GET |
+| **Auth** | None |
+
+### Source
+
+```typescript
+// app/api/health/db/route.ts
+import { checkDatabaseStatus } from "@/lib/db";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  const status = await checkDatabaseStatus();
+  return NextResponse.json(status);
+}
+```
+
+The shape of the response is determined by `checkDatabaseStatus()` in `lib/db.ts`. It indicates whether Prisma can successfully connect to PostgreSQL. A typical healthy response looks like:
+
+```json
+{
+  "status": "ok",
+  "database": "connected"
+}
+```
+
+If the database is unreachable, the response will reflect the connectivity failure with an appropriate status message rather than throwing an unhandled exception.
+
+---
+
+## curl Examples
+
+```bash
+# FastAPI root
+curl http://localhost:8000/
+
+# FastAPI health
+curl http://localhost:8000/api/health
+
+# Next.js DB health
+curl http://localhost:3000/api/health/db
+```
+
+---
+
+## Using Health Checks in Deployment
+
+<Tip>
+  Wire all three endpoints into your load balancer or uptime monitoring tool as separate health probes. Use `GET /api/health` for the FastAPI container's liveness and readiness checks, and `GET /api/health/db` for the Next.js container's readiness check — a Next.js instance that cannot reach the database should not receive traffic. Services like [Render](https://render.com), [Railway](https://railway.app), and AWS ALB all support configurable health check paths; setting a low failure threshold (e.g. 2 consecutive failures) and a short interval (e.g. 30 seconds) will surface database or service outages quickly without generating excessive noise.
+</Tip>

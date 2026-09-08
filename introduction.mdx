@@ -1,0 +1,70 @@
+---
+title: "LexMetra: Legal Metrology Compliance for Field Inspectors"
+sidebarTitle: "Introduction"
+description: "LexMetra automates statutory label verification for packaged commodities using OCR and rule-based compliance scoring built for Legal Metrology officers."
+---
+
+LexMetra is an AI-assisted compliance platform purpose-built for Legal Metrology officers who inspect packaged commodities in the field. Rather than manually cross-checking every label against the Legal Metrology (Packaged Commodities) Rules, inspectors capture or upload a product photograph and LexMetra instantly extracts all mandatory declarations, scores them for compliance, and generates a shareable inspection record — turning a tedious paper-based process into a reliable, auditable digital workflow.
+
+## What is LexMetra?
+
+The Legal Metrology (Packaged Commodities) Rules, 2011 require every pre-packaged commodity sold in India to carry eight specific declarations on its label. A missing or illegible declaration is a statutory violation, and detecting these violations accurately — across hundreds of SKUs per inspection round — is a significant burden for field officers.
+
+LexMetra addresses this directly. It presents each of the eight mandatory declarations as a structured checklist, populates the fields via OCR analysis of the product image, and immediately flags anything that is absent, unreadable, or requires human review.
+
+The eight declarations checked on every inspection are:
+
+| # | Declaration | Example |
+|---|-------------|---------|
+| 1 | **Product name** | Tata Salt |
+| 2 | **Manufacturer / Packer name & address** | Tata Consumer Products Ltd. |
+| 3 | **Net quantity** | 1 kg |
+| 4 | **Maximum Retail Price (MRP)** | ₹28.00 (incl. all taxes) |
+| 5 | **Packed-on date** | 06/2026 |
+| 6 | **Best-before / expiry** | 12 months from packing |
+| 7 | **Consumer care number** | 1800-108-4488 |
+| 8 | **Country of origin** | India |
+
+Each field receives a confidence score and a status of `VERIFIED`, `MISSING`, or `REVIEW`, making it immediately clear which declarations warrant further investigation.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="AI OCR Extraction" icon="scan">
+    Capture or upload a product photograph and the OCR engine automatically extracts all eight mandatory declarations from the label text, annotating each with a confidence percentage.
+  </Card>
+  <Card title="Compliance Scoring" icon="chart-bar">
+    Every inspection is assigned a numeric compliance score (0–100) and an overall status of **COMPLIANT**, **VIOLATION**, or **UNCERTAIN**, giving officers an instant at-a-glance verdict.
+  </Card>
+  <Card title="Inspection History" icon="clock-rotate-left">
+    All completed inspections are stored chronologically with their product details, manufacturer, quantity, score, and timestamp — accessible from the dashboard without any network dependency.
+  </Card>
+  <Card title="Compliance Register" icon="book">
+    Saved inspections are promoted to the compliance register, creating the persistent, auditable log required for Legal Metrology departmental records and enforcement proceedings.
+  </Card>
+  <Card title="Evidence Regions" icon="crosshairs">
+    The inspection result highlights bounding-box evidence regions on the product image — showing exactly where on the label each declaration was detected, supporting dispute resolution.
+  </Card>
+  <Card title="Inspection Reports" icon="file-lines">
+    Each inspection generates a structured report containing the declaration checklist, evidence annotations, compliance score, and inspector timestamp that can be exported or printed.
+  </Card>
+</CardGroup>
+
+## Project Context
+
+LexMetra was built for **Smart India Hackathon 2026**, addressing Problem Statement **PS 26034** issued by the Department of Legal Metrology. The platform was developed by **"The Inspectors"** team with the goal of digitalising field inspection workflows and reducing the manual overhead placed on Legal Metrology officers across India.
+
+<Info>
+  The project is actively under development. The OCR engine in the current release uses a client-side mock service that returns realistic demo data, allowing the full inspection workflow to be exercised without a live AI backend. A production OCR integration is planned for the next milestone.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get LexMetra running locally in 10 minutes — frontend, backend, and a demo login included.
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the Next.js frontend, FastAPI backend, and PostgreSQL database fit together.
+  </Card>
+</CardGroup>

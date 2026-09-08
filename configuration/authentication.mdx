@@ -1,0 +1,173 @@
+---
+title: "Authentication Setup with Better Auth in LexMetra"
+sidebarTitle: "Authentication"
+description: "How LexMetra uses Better Auth v1.7.3 with Prisma and PostgreSQL for email/password authentication, session management, and protected routes."
+---
+
+LexMetra handles authentication entirely through [Better Auth](https://better-auth.com) v1.7.3, a framework-agnostic TypeScript authentication library. Sessions are stored server-side in PostgreSQL via the Prisma adapter, meaning session tokens are never trusted purely on the client — every protected request resolves the session against the database. The integration is split across a server-side configuration file, a Next.js API route handler, and a thin client-side helper used in React components.
+
+## Auth Stack
+
+| Layer | Technology |
+|---|---|
+| Auth framework | Better Auth v1.7.3 |
+| Database adapter | `better-auth/adapters/prisma` with Prisma v7.10 |
+| Framework integration | `better-auth/next-js` (`nextCookies` plugin + `toNextJsHandler`) |
+| Session storage | PostgreSQL `Session` table |
+| Credential method | Email and password (hashed server-side by Better Auth) |
+| Session lifetime | **7 days** expiry, refreshed every **24 hours** on active use |
+
+The `nextCookies()` plugin wires Better Auth into Next.js's cookie API so sessions are set and read through `next/headers` without any manual cookie manipulation.
+
+## Server-Side Auth Config
+
+All server-side auth logic is initialised in `lib/auth.ts`. The file creates a shared Prisma client (using the same global singleton pattern as `lib/db.ts`), configures the Prisma adapter with the `postgresql` provider, enables email/password credentials, and registers the Next.js cookies plugin.
+
+```typescript lib/auth.ts
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { nextCookies } from "better-auth/next-js";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL!,
+});
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql",
+  }),
+  emailAndPassword: {
+    enabled: true,
+  },
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,  // 7 days
+    updateAge: 60 * 60 * 24,       // refresh every 24 hours
+  },
+  plugins: [nextCookies()],
+});
+```
+
+The exported `auth` object is the single source of truth for all auth operations on the server — it is imported by both the API route handler and server components that need to read the current session.
+
+## Route Handler
+
+Better Auth exposes its built-in endpoints (sign-in, sign-up, sign-out, session refresh, etc.) through a single catch-all Next.js API route. The handler lives at `app/api/auth/[...all]/route.ts` and delegates every `GET` and `POST` request to Better Auth:
+
+```typescript app/api/auth/[...all]/route.ts
+import { auth } from "@/lib/auth";
+import { toNextJsHandler } from "better-auth/next-js";
+
+export const { GET, POST } = toNextJsHandler(auth);
+```
+
+This exposes endpoints such as:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/auth/sign-in/email` | `POST` | Exchange email + password for a session |
+| `/api/auth/sign-up/email` | `POST` | Create a new user account |
+| `/api/auth/sign-out` | `POST` | Invalidate the current session |
+| `/api/auth/get-session` | `GET` | Return the current session and user object |
+
+No additional route files are needed — `toNextJsHandler` handles routing internally.
+
+## Client-Side Auth
+
+The `authClient` singleton in `lib/auth-client.ts` wraps Better Auth's React bindings and is the entry point for all auth actions in client components:
+
+```typescript lib/auth-client.ts
+import { createAuthClient } from "better-auth/react";
+
+export const authClient = createAuthClient();
+```
+
+Import `authClient` in any client component to trigger sign-in, sign-up, or sign-out. Better Auth handles the HTTP request to the route handler, cookie storage, and client-side session state automatically:
+
+```typescript
+import { authClient } from "@/lib/auth-client";
+
+// Sign in with email and password
+const { data, error } = await authClient.signIn.email({
+  email: "user@example.gov",
+  password: "password123",
+});
+
+// Sign up — creates a new User record in PostgreSQL
+const { data, error } = await authClient.signUp.email({
+  email: "new@example.gov",
+  password: "securepassword",
+  name: "Inspector Singh",
+});
+
+// Sign out — deletes the session from the database
+await authClient.signOut();
+```
+
+When `error` is non-null, Better Auth returns a structured error object with a `message` field suitable for display in the UI.
+
+## Protecting Server Routes
+
+Server components and page components read the current session using `auth.api.getSession()`. This method validates the session token from the incoming request's cookies against the `Session` table in PostgreSQL and returns the session + user or `null` if unauthenticated.
+
+The pattern used in `app/page.tsx` is the idiomatic way to guard any server-rendered page:
+
+```typescript app/page.tsx
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+export default async function Page() {
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) {
+    redirect("/auth");
+  }
+
+  // session.user is fully typed — access name, email, role, etc.
+  const { user } = session;
+
+  return <Dashboard user={user} />;
+}
+```
+
+Because `auth.api.getSession()` runs on the server, the session check adds no client-side JavaScript and cannot be bypassed by manipulating client state.
+
+## User Roles
+
+The `User` model includes a `role` field that defaults to `"inspector"` for every new account:
+
+```prisma
+model User {
+  // ...
+  role String @default("inspector")
+}
+```
+
+This field is available on every session's `user` object after authentication. It is currently used for display purposes (for example, labelling a user's badge in the UI). Role-based access control — restricting specific routes or API actions to users with elevated roles such as `"admin"` or `"supervisor"` — can be implemented by:
+
+1. Updating the `role` value directly in the database via Prisma Studio or a migration
+2. Checking `session.user.role` in server components or API route handlers
+3. Using a [Better Auth access control plugin](https://better-auth.com/docs/plugins/access-control) for declarative, policy-based RBAC
+
+<Note>
+  **Demo credentials for local testing**
+
+  A seed user is available for development. Use these credentials on the `/auth` page after running migrations:
+
+  - **Email:** `admin@demo.gov`
+  - **Password:** `password123`
+
+  Do not use these credentials in any environment accessible from the internet.
+</Note>

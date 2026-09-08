@@ -1,0 +1,106 @@
+---
+title: "Environment Variables for LexMetra Frontend and Backend"
+sidebarTitle: "Environment"
+description: "Complete reference for all environment variables required to run the LexMetra Next.js frontend and FastAPI backend in development and production."
+---
+
+LexMetra separates its runtime configuration into two distinct surfaces: a `.env.local` file consumed by the Next.js 16 frontend, and a set of hardcoded CORS origins inside the FastAPI backend. Understanding each variable — what it controls and when it is required — prevents the most common setup failures when standing up a new development or production environment.
+
+## Frontend Environment Variables
+
+Create a file named `.env.local` in the `frontend/` directory. Next.js automatically loads this file at startup; it is never bundled into the client and is excluded from version control by the default `.gitignore`.
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string used by Prisma to connect to the database. Must point to a PostgreSQL 13+ instance. The format follows the standard libpq URI convention.
+
+  **Example:** `postgresql://postgres:password@localhost:5432/lexmetra`
+
+  For hosted services, use the connection string provided by your provider (Supabase, Neon, Railway, etc.). Ensure the database named `lexmetra` (or your chosen name) exists before running migrations.
+</ParamField>
+
+<ParamField path="BETTER_AUTH_SECRET" type="string" required>
+  A cryptographically random secret of at least 32 characters used by Better Auth v1.7.3 to sign and verify session tokens. If this value changes, all existing sessions are immediately invalidated.
+
+  **Example:** `s3Kd9mP2vXqL8nYwRjTzAeUoBhCfGiNl` (32 chars minimum)
+
+  See the [Generating Secrets](#generating-secrets) section below for the recommended way to produce this value.
+</ParamField>
+
+<ParamField path="BETTER_AUTH_URL" type="string">
+  The canonical base URL of the Next.js application. Better Auth uses this value to construct OAuth callback URLs and for server-side redirects. Defaults to `http://localhost:3000` when not set.
+
+  **Development default:** `http://localhost:3000`
+
+  **Production example:** `https://lexmetra.yourdomain.com`
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_API_URL" type="string">
+  The base URL of the FastAPI backend. Because this variable is prefixed with `NEXT_PUBLIC_`, it is embedded into the client-side bundle and available in browser code. Set this to your deployed backend URL in production.
+
+  **Development default:** `http://localhost:8000`
+
+  **Production example:** `https://api.lexmetra.yourdomain.com`
+</ParamField>
+
+## Backend Environment Variables
+
+The FastAPI backend (`backend/main.py`) currently reads no `.env` file at runtime. CORS allowed origins are declared directly in the source:
+
+```python backend/main.py
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+To add or change allowed origins in development, edit the `allow_origins` list directly. For a production deployment that requires dynamic configuration, replace the hardcoded list with an environment variable read via `os.getenv`:
+
+```python backend/main.py (production pattern)
+import os
+
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:5173"
+).split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Then set `ALLOWED_ORIGINS` in your server environment or a backend `.env` file loaded with `python-dotenv`.
+
+## Example .env.local
+
+Copy this template into `frontend/.env.local` and replace the placeholder values before starting the development server.
+
+```bash .env.local
+DATABASE_URL=postgresql://postgres:password@localhost:5432/lexmetra
+BETTER_AUTH_SECRET=your-super-secret-key-at-least-32-characters
+BETTER_AUTH_URL=http://localhost:3000
+```
+
+<Warning>
+  Never commit `.env.local` to version control. It contains secrets that must stay off Git. The file is already listed in the project's `.gitignore` — verify this before your first commit if you created the file manually. For CI/CD pipelines and production deployments, inject these values as encrypted environment variables through your hosting platform (Vercel, Railway, Fly.io, etc.).
+</Warning>
+
+## Generating Secrets
+
+Use one of the following commands to generate a cryptographically strong value for `BETTER_AUTH_SECRET`. Run the command once, copy the output, and paste it into `.env.local`.
+
+```bash
+# Using OpenSSL (recommended — available on macOS, Linux, and WSL):
+openssl rand -base64 32
+
+# Using Node.js (works anywhere Node is installed):
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+Both commands produce a 44-character base64-encoded string that satisfies the 32-byte minimum entropy requirement.

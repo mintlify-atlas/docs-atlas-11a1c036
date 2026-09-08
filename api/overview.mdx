@@ -1,0 +1,78 @@
+---
+title: "LexMetra API Overview: Endpoints and Authentication"
+sidebarTitle: "Overview"
+description: "Overview of all LexMetra API endpoints across the FastAPI backend and Next.js API routes, including base URLs, auth, and request/response conventions."
+---
+
+LexMetra exposes two distinct API services that work in tandem: a **FastAPI backend** (Python) responsible for OCR-based label inspection and core health checks, and a set of **Next.js API routes** that handle authentication via Better Auth, image upload with Sharp compression, and database health monitoring. Both services run locally during development and are designed to be deployed independently, communicating over HTTP.
+
+## Base URLs
+
+| Service | Base URL | Description |
+|---|---|---|
+| FastAPI Backend | `http://localhost:8000` | OCR inspection and health |
+| Next.js API Routes | `http://localhost:3000` | Auth, upload, DB health |
+
+## Authentication
+
+API routes under `/api/auth/*` are handled by [Better Auth](https://www.better-auth.com/) via the catch-all Next.js route at `app/api/auth/[...all]/route.ts`. Better Auth manages session cookies automatically on sign-in and sign-up. Protected routes — such as `POST /api/auth/user/image` — require a valid session cookie that Better Auth sets after a successful sign-in.
+
+To call a protected endpoint, include the session cookie in your request:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/user/image \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better-auth.session_token=<your-session-token>" \
+  -d '{"image": "<base64-encoded-image>"}'
+```
+
+<Note>
+  Session cookies are set with `HttpOnly` and `SameSite=Lax` by default. When making requests from the browser, cookies are sent automatically. For server-to-server calls, forward the `Cookie` header from the incoming request.
+</Note>
+
+## All Endpoints
+
+| Method | Path | Service | Auth Required | Description |
+|---|---|---|---|---|
+| GET | `/` | FastAPI | No | Root health check |
+| GET | `/api/health` | FastAPI | No | Backend liveness check |
+| POST | `/api/inspect` | FastAPI | No | Submit product label image for inspection |
+| POST | `/api/upload` | Next.js | No | Upload and compress product label image |
+| GET | `/api/health/db` | Next.js | No | Database connectivity check |
+| POST | `/api/auth/user/image` | Next.js | **Yes** | Update user profile image |
+| GET/POST | `/api/auth/[...all]` | Next.js | Varies | Better Auth catch-all handler |
+
+## Response Format
+
+All endpoints return **JSON**. Successful responses include the relevant resource or status fields. Error responses always include an `error` string field describing the failure:
+
+```json
+{
+  "error": "No file"
+}
+```
+
+HTTP status codes follow standard conventions: `200` for success, `400` for client errors (bad input, missing fields), `401` for unauthenticated requests to protected routes, and `500` for unexpected server failures.
+
+## CORS
+
+The FastAPI backend is configured with `CORSMiddleware` that permits cross-origin requests from the Next.js development server and Vite dev server:
+
+- **Allowed origins:** `http://localhost:3000`, `http://localhost:5173`
+- **Allowed methods:** All (`*`)
+- **Allowed headers:** All (`*`)
+- **Credentials:** Enabled (`allow_credentials=True`)
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+<Warning>
+  The wildcard CORS policy is appropriate for local development only. Restrict `allow_origins` to your production domain before deploying the FastAPI backend.
+</Warning>
