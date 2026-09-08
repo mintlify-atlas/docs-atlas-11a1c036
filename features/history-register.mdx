@@ -32,11 +32,12 @@ The history list shows all records unconditionally — both saved and unsaved, a
 
 ## Compliance Register
 
-The register view applies a single additional filter on top of the shared search/status filters:
+The register view is rendered by `ListView` with `kind="register"`. It applies a single additional filter on top of the shared search/status filters:
 
 ```typescript
-// ListView applies this when kind === "register"
+// ListView applies this predicate for every item:
 (kind === "history" || item.saved)
+// When kind === "register", this resolves to: item.saved === true
 ```
 
 This means only records where `saved === true` are visible in the register. An inspector promotes a record by tapping **Save inspection** in the `ResultView`, which triggers `saveAndRegister()`. This calls `markInspectionSaved(id)` from `mock-services.ts`:
@@ -89,6 +90,17 @@ const INSPECTIONS_KEY = 'the-inspectors-inspections';
 const stored = window.localStorage.getItem(INSPECTIONS_KEY);
 ```
 
+`persistInspection` prepends the new record and deduplicates by `id`, ensuring the same inspection ID can never appear twice:
+
+```typescript
+export function persistInspection(inspection: Inspection): Inspection[] {
+  const current = loadInspections();
+  const next = [inspection, ...current.filter((item) => item.id !== inspection.id)];
+  saveInspections(next);
+  return next;
+}
+```
+
 On app mount, the `useEffect` in `InspectionApp` reads this key and merges the stored records with the seed fixtures:
 
 ```typescript
@@ -129,16 +141,16 @@ If localStorage is empty or the data cannot be parsed, the app falls back to the
 Clicking any row in History or Register calls `handleOpen(inspection)`, which sets the selected record and transitions to the `detail` view (which renders `ResultView` with the selected inspection). The detail view provides:
 
 <CardGroup cols={2}>
-  <Card title="Product thumbnail & status badge" icon="package">
+  <Card title="Product thumbnail & status badge" icon="package" href="/features/inspection">
     A colour-coded product thumbnail (initials-based or image, if available) alongside the `COMPLIANT`, `VIOLATION`, or `UNCERTAIN` badge, score ring, and inspection metadata strip (product name, ID, declarations count, timestamp).
   </Card>
-  <Card title="Declarations table" icon="list-check">
+  <Card title="Declarations table" icon="list-check" href="/features/ocr-extraction">
     All eight declarations listed with field name, extracted value, and a colour-coded status indicator — green check for `VERIFIED`, red ✕ for `MISSING`, amber ℹ for `REVIEW` — plus the confidence percentage on wider screens.
   </Card>
-  <Card title="Evidence regions viewer" icon="scan">
+  <Card title="Evidence regions viewer" icon="scan" href="/features/ocr-extraction">
     Tapping **View evidence** transitions to the `evidence` view, which overlays the bounding-box markers on the original captured image. Clicking a marker highlights it and shows the detected text and confidence in the detail panel.
   </Card>
-  <Card title="Action buttons" icon="floppy-disk">
+  <Card title="Action buttons" icon="floppy-disk" href="/features/inspection">
     **Save inspection** promotes the record to the compliance register (`saved: true`). **View evidence** opens the annotated image. **Generate report** opens the `ReportView` with a downloadable formal compliance report.
   </Card>
 </CardGroup>

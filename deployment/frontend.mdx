@@ -1,7 +1,7 @@
 ---
-title: "Deploying the LexMetra Next.js Frontend"
+title: "LexMetra Next.js Frontend: Build and Deployment Guide"
 sidebarTitle: "Frontend"
-description: "How to build and deploy the LexMetra Next.js 16 frontend to Vercel or any Node.js host, including environment variable configuration and database migration."
+description: "Build and deploy the LexMetra Next.js 16 frontend to Vercel or a Node.js VPS, configure environment variables, and run Prisma database migrations."
 ---
 
 The LexMetra frontend is a Next.js 16 application backed by Prisma 7 and Better Auth for session management. Before going live, you need to compile the application, provision a production PostgreSQL database, and configure the three core environment variables that wire auth, sessions, and the database together.
@@ -35,11 +35,19 @@ The LexMetra frontend is a Next.js 16 application backed by Prisma 7 and Better 
     ```
   </Step>
 
-  <Step title="Start the production server">
-    `npm run start` launches `next start`, serving the compiled `.next/` artefacts on port 3000.
+  <Step title="Apply database migrations">
+    Before starting the server, apply any pending Prisma migrations against your production database. This command is safe to run in CI/CD pipelines — it executes only unapplied migration SQL without generating new migration files.
 
     ```bash
-    npm run start
+    npx prisma migrate deploy
+    ```
+  </Step>
+
+  <Step title="Start the production server">
+    `npm start` launches `next start`, serving the compiled `.next/` artefacts on port 3000.
+
+    ```bash
+    npm start
     ```
   </Step>
 </Steps>
@@ -65,6 +73,9 @@ Vercel is the recommended hosting target for Next.js 16 applications. It provide
 For self-managed infrastructure, use **PM2** to supervise the Node.js process and ensure it restarts automatically on crashes or server reboots.
 
 ```bash
+# Apply migrations against your production database
+npx prisma migrate deploy
+
 # Build the optimised output
 npm run build
 

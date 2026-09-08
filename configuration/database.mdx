@@ -1,5 +1,5 @@
 ---
-title: "Database Setup and Schema for LexMetra"
+title: "LexMetra Database: PostgreSQL, Prisma, and Migrations"
 sidebarTitle: "Database"
 description: "How to set up PostgreSQL, run Prisma migrations, and understand the LexMetra schema for users, sessions, accounts, and verification tokens."
 ---
@@ -37,7 +37,7 @@ export default defineConfig({
 
 ## Schema Overview
 
-The `prisma/schema.prisma` file defines four models. All IDs use `cuid()` for globally unique, URL-safe identifiers.
+The `prisma/schema.prisma` file defines four models. All IDs use `cuid()` for globally unique, URL-safe identifiers. Note that the `datasource` block has no `url` field — the connection string is supplied at runtime through the `PrismaPg` adapter in `lib/auth.ts` and `lib/db.ts`, not through the schema file itself.
 
 ```prisma prisma/schema.prisma
 generator client {
@@ -184,3 +184,42 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 ```
 
 In production (`NODE_ENV === "production"`), the global reference is never set, so each serverless function invocation gets a fresh client that is garbage-collected normally. In development, the reference is stored on `globalThis` so the hot-reload cycle reuses the same connection pool instead of opening a new one on every file save.
+
+## Database Utility Functions
+
+`lib/db.ts` exports two utility functions used by the application's internal API routes alongside the `prisma` singleton.
+
+### checkDatabaseStatus
+
+Returns a `{ connected: boolean }` object indicating whether the database is reachable. Used by the `/api/health/db` route to expose a health-check endpoint. The check runs a raw `SELECT 1` query and catches any thrown error rather than letting it propagate.
+
+```typescript
+export async function checkDatabaseStatus() {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return { connected: true };
+  } catch {
+    return { connected: false };
+  }
+}
+```
+
+### updateUserImage
+
+Updates the `image` field on a `User` record with a base64-encoded image string, then returns the updated `id`, `name`, `email`, and `image` fields. Returns `null` if the update fails (e.g. the `userId` does not exist).
+
+```typescript
+export async function updateUserImage(userId: string, imageBase64: string) {
+  try {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { image: imageBase64 },
+      select: { id: true, name: true, email: true, image: true },
+    });
+    return user;
+  } catch (error) {
+    console.error("Error updating user image:", error);
+    return null;
+  }
+}
+```

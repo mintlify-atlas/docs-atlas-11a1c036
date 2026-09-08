@@ -19,7 +19,7 @@ The eight declarations checked on every inspection are:
 | 1 | **Product name** | Tata Salt |
 | 2 | **Manufacturer / Packer name & address** | Tata Consumer Products Ltd. |
 | 3 | **Net quantity** | 1 kg |
-| 4 | **Maximum Retail Price (MRP)** | ₹28.00 (incl. all taxes) |
+| 4 | **Maximum Retail Price (MRP)** | ₹28.00 |
 | 5 | **Packed-on date** | 06/2026 |
 | 6 | **Best-before / expiry** | 12 months from packing |
 | 7 | **Consumer care number** | 1800-108-4488 |
@@ -30,22 +30,22 @@ Each field receives a confidence score and a status of `VERIFIED`, `MISSING`, or
 ## Key Features
 
 <CardGroup cols={2}>
-  <Card title="AI OCR Extraction" icon="scan">
+  <Card title="AI OCR Extraction" icon="scan" href="/features/ocr-extraction">
     Capture or upload a product photograph and the OCR engine automatically extracts all eight mandatory declarations from the label text, annotating each with a confidence percentage.
   </Card>
-  <Card title="Compliance Scoring" icon="chart-bar">
+  <Card title="Compliance Scoring" icon="chart-bar" href="/features/compliance-rules">
     Every inspection is assigned a numeric compliance score (0–100) and an overall status of **COMPLIANT**, **VIOLATION**, or **UNCERTAIN**, giving officers an instant at-a-glance verdict.
   </Card>
-  <Card title="Inspection History" icon="clock-rotate-left">
+  <Card title="Inspection History" icon="clock-rotate-left" href="/features/history-register">
     All completed inspections are stored chronologically with their product details, manufacturer, quantity, score, and timestamp — accessible from the dashboard without any network dependency.
   </Card>
-  <Card title="Compliance Register" icon="book">
+  <Card title="Compliance Register" icon="book" href="/features/history-register">
     Saved inspections are promoted to the compliance register, creating the persistent, auditable log required for Legal Metrology departmental records and enforcement proceedings.
   </Card>
-  <Card title="Evidence Regions" icon="crosshairs">
+  <Card title="Evidence Regions" icon="crosshairs" href="/features/inspection">
     The inspection result highlights bounding-box evidence regions on the product image — showing exactly where on the label each declaration was detected, supporting dispute resolution.
   </Card>
-  <Card title="Inspection Reports" icon="file-lines">
+  <Card title="Inspection Reports" icon="file-lines" href="/features/inspection">
     Each inspection generates a structured report containing the declaration checklist, evidence annotations, compliance score, and inspector timestamp that can be exported or printed.
   </Card>
 </CardGroup>

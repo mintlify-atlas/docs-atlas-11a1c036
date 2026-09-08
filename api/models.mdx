@@ -1,7 +1,7 @@
 ---
 title: "LexMetra Data Models: Inspection, Declaration, User"
 sidebarTitle: "Data Models"
-description: "TypeScript and Prisma type definitions for all LexMetra data models: Inspection, Declaration, EvidenceRegion, User, Session, and InspectionStatus enums."
+description: "TypeScript and Prisma model reference for LexMetra: Inspection, Declaration, EvidenceRegion, statusCopy record, Prisma auth models, and mock service API."
 ---
 
 LexMetra's data layer is split into two groups of models. The **client-side inspection models** are pure TypeScript types defined in `lib/demo-data.ts` — they describe the shape of inspection results, individual declaration checks, and OCR evidence regions that flow through the UI and the mock service layer. The **server-side auth models** are Prisma schemas backed by PostgreSQL, managed by Better Auth and configured in `lib/auth.ts` — they represent persistent entities such as authenticated users, active sessions, linked accounts, and email verification tokens.
@@ -37,6 +37,28 @@ type DeclarationStatus = "VERIFIED" | "MISSING" | "REVIEW";
 | `"VERIFIED"` | The declaration was detected by OCR with high confidence and passed rule validation. |
 | `"MISSING"` | The declaration was not detected on the label at all. |
 | `"REVIEW"` | The declaration was detected but with low confidence, or the extracted value did not pass validation. Human review is needed. |
+
+---
+
+## statusCopy
+
+A record that maps each `InspectionStatus` value to human-readable display strings used throughout the LexMetra UI. Defined in `lib/demo-data.ts`.
+
+```typescript
+export const statusCopy: Record<InspectionStatus, { label: string; short: string }> = {
+  COMPLIANT: { label: "Compliant", short: "Verified" },
+  VIOLATION: { label: "Violation", short: "Issue found" },
+  UNCERTAIN: { label: "Uncertain", short: "Needs review" },
+};
+```
+
+| Status | `label` | `short` |
+|---|---|---|
+| `COMPLIANT` | `"Compliant"` | `"Verified"` |
+| `VIOLATION` | `"Violation"` | `"Issue found"` |
+| `UNCERTAIN` | `"Uncertain"` | `"Needs review"` |
+
+`label` is used in full-detail views; `short` is used in compact badges and list summaries.
 
 ---
 
@@ -198,6 +220,44 @@ type Inspection = {
 
 ---
 
+## Demo-Data Helpers
+
+Two utility functions in `lib/demo-data.ts` generate new `Inspection` records from the four seed fixtures:
+
+```typescript
+// Clone a seed inspection with a new ID and current timestamp
+export function cloneInspection(template: Inspection, image?: string): Inspection;
+
+// Return a demo case based on a numeric seed (uses modulo selection over seedInspections)
+export function getDemoCase(seed: number, image?: string): Inspection;
+```
+
+`getDemoCase` selects a fixture using `seed % 3` and `seed % 2`, then calls `cloneInspection` to produce a unique record. Both functions are used internally by `inspectPackage()` in `lib/mock-services.ts`.
+
+---
+
+## Client-Side Service Functions
+
+All functions in `lib/mock-services.ts` operate on the browser's `localStorage` under the key `"the-inspectors-inspections"`. They are synchronous except for `inspectPackage` and `ocrService.extractText`, which simulate async latency.
+
+| Function / Export | Signature | Description |
+|---|---|---|
+| `loadInspections` | `() => Inspection[]` | Read all inspections from `localStorage`. Returns `[]` if empty or on parse error. |
+| `saveInspections` | `(inspections: Inspection[]) => void` | Overwrite the full `localStorage` inspections array. |
+| `getAllInspections` | `() => Inspection[]` | Wrapper around `loadInspections`; returns `[]` when storage is empty. |
+| `getInspectionById` | `(id: string) => Inspection \| undefined` | Find a single inspection by its `id` field. |
+| `persistInspection` | `(inspection: Inspection) => Inspection[]` | Prepend an inspection to storage (or replace by `id` if it already exists). Returns the updated list. |
+| `markInspectionSaved` | `(id: string) => Inspection[]` | Set `saved: true` on the inspection with the given `id`. Returns the updated list. |
+| `inspectPackage` | `(image?: string, demoSeed?: number) => Promise<Inspection>` | Simulates an async inspection (250 ms delay) by returning a `getDemoCase` result. |
+| `ocrService.extractText` | `(image?: string) => Promise<{ source: string; text: string }>` | Mock OCR extraction (500 ms delay). Returns `{ source, text: "mock structured label text" }`. |
+| `complianceService.evaluate` | `(inspection: Inspection) => InspectionStatus` | Returns `inspection.status` directly. No rules are evaluated in the mock. |
+
+<Note>
+  All mock service functions are client-side only. `loadInspections` and `saveInspections` guard against server-side execution with a `typeof window === "undefined"` check and return early on the server.
+</Note>
+
+---
+
 ## Prisma Auth Models
 
 The server-side authentication models are managed by Better Auth using the Prisma adapter with PostgreSQL. These models are configured in `lib/auth.ts` and reflect the standard Better Auth schema. For the full Prisma schema definition, see the **Database** configuration page.
@@ -205,7 +265,7 @@ The server-side authentication models are managed by Better Auth using the Prism
 | Model | Description |
 |---|---|
 | `User` | Inspector account record. Stores `id`, `email`, `name`, `image`, `role`, `createdAt`, and `updatedAt`. |
-| `Session` | An active authenticated session. Stores the session `token`, `userId` foreign key, `expiresAt`, and `ipAddress`. Sessions expire after **7 days** (configurable via `session.expiresIn` in `lib/auth.ts`). |
+| `Session` | An active authenticated session. Stores the session `token`, `userId` foreign key, `expiresAt`, and `ipAddress`. Sessions expire after **7 days** (configurable via `session.expiresIn` in `lib/auth.ts`) and are refreshed within a **24-hour** rolling window (`updateAge`). |
 | `Account` | An OAuth or credential-based account linked to a `User`. Supports future OAuth provider integrations alongside the current email/password flow. |
 | `Verification` | Short-lived token records used for email verification and password reset flows managed by Better Auth. |
 

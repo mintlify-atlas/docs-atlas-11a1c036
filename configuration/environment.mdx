@@ -16,6 +16,8 @@ Create a file named `.env.local` in the `frontend/` directory. Next.js automatic
   **Example:** `postgresql://postgres:password@localhost:5432/lexmetra`
 
   For hosted services, use the connection string provided by your provider (Supabase, Neon, Railway, etc.). Ensure the database named `lexmetra` (or your chosen name) exists before running migrations.
+
+  This variable is also read by `prisma.config.ts` and `prisma7.config.ts` (via the `dotenv` package) when running Prisma CLI commands such as `migrate deploy` and `studio`.
 </ParamField>
 
 <ParamField path="BETTER_AUTH_SECRET" type="string" required>
@@ -34,14 +36,6 @@ Create a file named `.env.local` in the `frontend/` directory. Next.js automatic
   **Production example:** `https://lexmetra.yourdomain.com`
 </ParamField>
 
-<ParamField path="NEXT_PUBLIC_API_URL" type="string">
-  The base URL of the FastAPI backend. Because this variable is prefixed with `NEXT_PUBLIC_`, it is embedded into the client-side bundle and available in browser code. Set this to your deployed backend URL in production.
-
-  **Development default:** `http://localhost:8000`
-
-  **Production example:** `https://api.lexmetra.yourdomain.com`
-</ParamField>
-
 ## Backend Environment Variables
 
 The FastAPI backend (`backend/main.py`) currently reads no `.env` file at runtime. CORS allowed origins are declared directly in the source:
@@ -58,7 +52,7 @@ app.add_middleware(
 
 To add or change allowed origins in development, edit the `allow_origins` list directly. For a production deployment that requires dynamic configuration, replace the hardcoded list with an environment variable read via `os.getenv`:
 
-```python backend/main.py (production pattern)
+```python
 import os
 
 ALLOWED_ORIGINS = os.getenv(

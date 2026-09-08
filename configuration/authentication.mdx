@@ -1,5 +1,5 @@
 ---
-title: "Authentication Setup with Better Auth in LexMetra"
+title: "Better Auth v1.7.3 Authentication Setup for LexMetra"
 sidebarTitle: "Authentication"
 description: "How LexMetra uses Better Auth v1.7.3 with Prisma and PostgreSQL for email/password authentication, session management, and protected routes."
 ---
@@ -126,7 +126,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-export default async function Page() {
+export default async function Home() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });

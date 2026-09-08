@@ -1,5 +1,5 @@
 ---
-title: "LexMetra System Architecture and Tech Stack"
+title: "LexMetra System Architecture: Tech Stack and Data Flow"
 sidebarTitle: "Architecture"
 description: "Overview of LexMetra's two-service architecture: Next.js 16 frontend with Prisma and Better Auth, and a FastAPI Python backend for OCR processing."
 ---
@@ -34,8 +34,8 @@ LexMetra is built as two independently runnable services: a **Next.js 16 fronten
 
 ┌───────────────────────────────────┐
 │  FastAPI Backend (port 8000)       │
+│  GET  /api/health (liveness)       │
 │  POST /api/inspect (OCR engine)    │
-│  POST /api/upload (image upload)   │
 └───────────────────────────────────┘
 ```
 
@@ -228,6 +228,7 @@ export type Inspection = {
   status: InspectionStatus;    // "COMPLIANT" | "VIOLATION" | "UNCERTAIN"
   summary: string;
   timestamp: string;           // ISO 8601
+  dateLabel: string;           // human-readable label, e.g. "Today, 10:32 AM"
   declarations: Declaration[];
   evidence: EvidenceRegion[];
   image?: string;              // base64 or object URL

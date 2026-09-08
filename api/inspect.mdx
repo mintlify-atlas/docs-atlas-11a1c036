@@ -1,14 +1,14 @@
 ---
 title: "POST /api/inspect — Submit Product Image for Inspection"
 sidebarTitle: "Inspect"
-description: "FastAPI endpoint that accepts a product label image and metadata, runs OCR extraction, and returns a compliance inspection result with declaration statuses."
+description: "FastAPI endpoint that accepts a product label image and metadata via multipart/form-data, and returns a JSON inspection result with compliance status."
 ---
 
 The `/api/inspect` endpoint is the core of LexMetra's compliance pipeline. It accepts a product label image along with optional product metadata, processes the image through the OCR and rules engine, and returns a structured inspection result indicating whether the label meets Legal Metrology requirements. The endpoint is served by the FastAPI backend and requires no authentication, making it straightforward to integrate into automated scanning workflows.
 
 ## Endpoint
 
-```
+```http
 POST http://localhost:8000/api/inspect
 ```
 
@@ -55,10 +55,14 @@ The response is a JSON object summarising the inspection outcome.
 </ResponseField>
 
 <ResponseField name="overall_status" type="string">
-  The top-level compliance verdict for the product label. One of:
+  The top-level compliance verdict for the product label. In the current placeholder implementation the value is always `"PASS"`. The planned production values are:
   - `"PASS"` — all checked declarations are present and valid
   - `"FAIL"` — one or more mandatory declarations are missing or incorrect
   - `"UNCERTAIN"` — OCR confidence was too low to make a definitive determination
+
+  <Note>
+    The FastAPI response uses `"PASS"` / `"FAIL"` status strings, which differ from the client-side `InspectionStatus` type in `lib/demo-data.ts` (`"COMPLIANT"` / `"VIOLATION"` / `"UNCERTAIN"`). Until the full OCR pipeline ships, frontend code should use `inspectPackage()` from `lib/mock-services.ts` for demo data — it returns the client-side `InspectionStatus` values directly.
+  </Note>
 </ResponseField>
 
 <ResponseField name="results" type="array">

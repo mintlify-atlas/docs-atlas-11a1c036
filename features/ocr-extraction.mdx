@@ -29,17 +29,17 @@ Each extracted field is assigned one of three `DeclarationStatus` values based o
 
 <Tabs>
   <Tab title="VERIFIED">
-    The field was detected with a confidence score at or above the verification threshold (approximately 66 and above in practice). The extracted value is considered reliable for compliance purposes.
+    The field was detected with a high confidence score. In the seed fixtures, `VERIFIED` fields range from approximately 81 to 99% confidence. The extracted value is considered reliable for compliance purposes.
 
     **Example:** Product name `Tata Salt` at confidence 99%.
   </Tab>
   <Tab title="REVIEW">
-    The field was detected but with a confidence score in the low-to-mid range (approximately 20–65). The value has been extracted but an officer should manually cross-check it against the physical label before making a compliance decision.
+    The field was detected but with a low-to-mid confidence score (approximately 29–58% in the seed data). The value has been extracted but an officer should manually cross-check it against the physical label before making a compliance decision.
 
     **Example:** Best before `Not detected` at confidence 58% — the text region was found but could not be parsed cleanly.
   </Tab>
   <Tab title="MISSING">
-    The field was not detected, or was detected with a confidence score below 20. The declaration is treated as absent from the label, which constitutes a violation of the Packaged Commodities Rules.
+    The field was not detected, or was detected with a very low confidence score (below approximately 29% in the seed data). The declaration is treated as absent from the label, which constitutes a violation of the Packaged Commodities Rules.
 
     **Example:** Consumer care `Not detected` at confidence 16%.
   </Tab>
@@ -104,20 +104,20 @@ Clicking a region in the Evidence viewer highlights it and shows its detected te
 
 ## Image Upload Flow
 
-When a user submits a real image (camera capture or gallery upload), the frontend encodes it as a JPEG data-URL on the client. In the production pipeline, this image will be sent to the `/api/upload` endpoint as `multipart/form-data`. The upload handler:
+When a user submits a real image (camera capture or gallery upload), the frontend encodes it as a JPEG data-URL on the client. In the production pipeline, this image can be sent to the Next.js `/api/upload` endpoint as `multipart/form-data` with an `image` field. The upload handler:
 
 <Steps>
   <Step title="Receive multipart payload">
-    The endpoint accepts the image as an `UploadFile` field in a `multipart/form-data` request body alongside optional metadata fields such as `product_name`, `sale_type`, `is_imported`, and `net_quantity_grams_or_ml`.
+    The endpoint reads the incoming `FormData` and extracts the `image` field as a `File` object. If no file is present a `400` error is returned immediately.
   </Step>
   <Step title="Compress with sharp">
-    The image is resized to a maximum width of **1 200 px** and re-encoded as JPEG at **quality 80** using the `sharp` image processing library, keeping file sizes manageable for the OCR pipeline.
+    The image buffer is resized to a maximum width of **1 200 px** (without enlargement) and re-encoded as a progressive JPEG at **quality 80** using the `sharp` image processing library, keeping file sizes manageable for the OCR pipeline.
   </Step>
   <Step title="Return URL">
-    The compressed image is stored and a URL is returned to the frontend for embedding in the `Inspection` record's optional `image` field, which is used to render the product thumbnail and the annotated evidence view.
+    The compressed file is written to `public/uploads/` and a URL (`/uploads/<filename>`) is returned to the frontend for embedding in the `Inspection` record's optional `image` field, which is used to render the product thumbnail and the annotated evidence view.
   </Step>
 </Steps>
 
 <Warning>
-  The `/api/upload` endpoint is part of the production roadmap and is not yet active. In the current demo build, captured images are stored as base-64 data-URLs directly on the `Inspection` object in localStorage — no server upload occurs.
+  The `/api/upload` endpoint is part of the production roadmap and is not yet active in the demo build. In the current release, captured images are stored as base-64 data-URLs directly on the `Inspection` object in localStorage — no server upload occurs.
 </Warning>

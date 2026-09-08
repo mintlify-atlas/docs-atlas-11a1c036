@@ -1,7 +1,7 @@
 ---
-title: "Product Label Inspection Workflow in LexMetra"
+title: "Full Inspection Workflow for Product Labels in LexMetra"
 sidebarTitle: "Inspection"
-description: "Walk through the complete LexMetra inspection flow: scanning a product label, reviewing OCR-extracted declarations, and saving results to the compliance register."
+description: "Walk through the LexMetra inspection flow: scan a product label, review OCR-extracted declarations, and save results to the compliance register."
 ---
 
 LexMetra's inspection workflow gives a field officer everything needed to evaluate a pre-packaged commodity label in seconds — from capturing an image to receiving a scored compliance verdict and optionally promoting the record to the statutory register. The entire flow runs client-side in demo mode, meaning inspections start immediately without any backend round-trip.
@@ -52,7 +52,7 @@ Navigation between views uses the `go(nextView)` helper, which also resets the `
     After 3 500 ms `finishProcessing()` is invoked, which calls the async `inspectPackage(pendingImage)` function from `mock-services.ts`. The function waits 250 ms (simulating network latency) then delegates to `getDemoCase(Date.now(), image)` to produce a fully-typed `Inspection` object.
   </Step>
   <Step title="Inspection object returned">
-    The returned `Inspection` is appended to the front of the in-memory `inspections` array and set as the `selected` record, making it immediately available to the result views.
+    The returned `Inspection` is prepended to the in-memory `inspections` array and set as the `selected` record, making it immediately available to the result views.
   </Step>
   <Step title="ResultView displayed">
     The view state transitions to `result`. `ResultView` renders the decision card with status badge, compliance score ring, a declaration-by-declaration breakdown, any detected issues, and the save/evidence/report action buttons.
@@ -73,11 +73,11 @@ The numeric `score` (0–100) represents the percentage of declarations verified
 
 ## Saving an Inspection
 
-Two distinct save actions are available from `ResultView`:
+One save action is available from `ResultView`. The **Save inspection** button is wired to `saveAndRegister()`:
 
-**`saveCurrent()`** — constructs a copy of the selected inspection with `saved: true`, calls `persistInspection(saved)` to write the full record to localStorage, and shows a toast: *"Inspection saved to your local register"*. The record appears in the History list.
+**`saveAndRegister()`** — constructs a copy of the selected inspection with `saved: true`, calls `markInspectionSaved(id)` from `mock-services.ts` which reads the current localStorage array, sets `saved: true` on the matching record, and writes it back. Both the in-memory state and localStorage are updated immediately. Toast: *"Added to Compliance Register"*.
 
-**`saveAndRegister()`** — calls `markInspectionSaved(id)` which reads the current localStorage array, sets `saved: true` on the matching record, and writes it back. The inspection is then promoted to the **Compliance Register** view (the `register` view filters for `saved === true`). Toast: *"Added to Compliance Register"*.
+A second function, **`saveCurrent()`**, is also defined in `InspectionApp`. It calls `persistInspection(saved)` to write the full record to localStorage and shows the toast *"Inspection saved to your local register"*. This function is available for programmatic use but is not currently wired to any UI button.
 
 Once saved, the **Save inspection** button switches to a disabled **Saved to register** state so the same record cannot be double-submitted.
 
@@ -88,10 +88,10 @@ Once saved, the **Save inspection** button switches to a disabled **Saved to reg
 ## Demo Mode
 
 <Note>
-  In demo mode `inspectPackage()` never contacts a real backend. It calls `getDemoCase(demoSeed, image)` where `demoSeed` defaults to `Date.now()`. The fixture case is selected by `seed % 3`:
+  In demo mode `inspectPackage()` never contacts a real backend. It calls `getDemoCase(demoSeed, image)` where `demoSeed` defaults to `Date.now()`. The fixture case is selected by evaluating the seed against two modulo conditions:
 
   - `seed % 3 === 0` → **UNCERTAIN** fixture (Demo Food Package, score 42)
-  - `seed % 3 === 2` (even, not divisible by 3) → **VIOLATION** fixture (Demo Shampoo, score 75)
+  - `seed % 2 === 0` (and not divisible by 3) → **VIOLATION** fixture (Demo Shampoo, score 75)
   - All other values → **COMPLIANT** fixture (Tata Salt, score 100)
 
   The selected fixture is cloned via `cloneInspection()`, which assigns a fresh randomised ID (`LM-2026-XXXX`), sets `timestamp` to `new Date().toISOString()`, `dateLabel` to `"Just now"`, and optionally attaches the captured image. This means repeated scans cycle through all three compliance outcomes naturally over time.
